@@ -1,3 +1,7 @@
+# movement.py
+# Implements all basic and slanted movements (forward, backward, left, right, diagonal)
+# and turns for the robot using ROS Twist messages 
+
 import rclpy
 import signal
 from rclpy.node import Node
