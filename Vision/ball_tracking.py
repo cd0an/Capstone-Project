@@ -1,6 +1,7 @@
-# USAGE
-# python ball_tracking.py --video ball_tracking_example.mp4
-# python ball_tracking.py
+# ball_tracking.py
+# Tracks a ball in real-time or from video using HSV thresholds;
+# visualizes trajectory and centroid of the ball
+
 
 # import the necessary packages
 from collections import deque
