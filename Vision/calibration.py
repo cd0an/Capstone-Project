@@ -1,4 +1,4 @@
-# hsv_range_detector.py
+# calibration.py
 # Provides an interactive tool to calibrate HSV color
 # thresholds using trackbars and saves the settings to config.json
 

@@ -1,3 +1,26 @@
 # requirements.txt
 # Lists all Python dependencies needed to run the project 
 # (OpenCV, NumPy, ROS packages, etc.)
+# All you need to do is run: pip install -r requirements.txt
+
+# Core libraries 
+numpy == 1.24.4 # Arrays, math operations 
+opencv-python == 4.8.1.78 # Computer vision (camera feed, image processing) 
+matplotlib == 3.7.2 # For visualizing data (optional)
+scipy == 1.11.1 # For advanced math operations (optional)
+
+# YOLO / Deep Learning
+torch == 2.2.0 # PyTorch for YOLO models
+torchvision == 0.17.1 # YOLO model utilities 
+ultralytics == 8.0.169 # YOLOv8 library for training & intference 
+
+# Utilities 
+pandas == 2.1.1 # Handling datasets (e.g., Roboflow CSVs) 
+pyyaml == 6.0 # For config files if needed
+loguru == 0.7.0 # Nice logging instead of print statements 
+
+# For camera access 
+picamera2 == 0.1.11 # Raspberry Pi camera library (if using Pi Camera)
+
+# Docker-friendly helpers
+python-dotenv == 1.0.0 # For loading environment variables (e.g., API keys)
