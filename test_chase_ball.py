@@ -1,26 +1,26 @@
-# main.py
-# Main entry point to run the robot autonomously;
-# orchestrates movement, navigation, vision modules, and hardware integration
+# test_chase.py
+# A simplified test script to isolate and tune ball-tracking PID controllers,
+# now upgraded with Gimbal Tracking, Smoothing, and RGB LEDs.
 
-import time
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from multiprocessing import Process, Queue
+import time
 
 # Import TurboPi hardware message types
 from ros_robot_controller_msgs.msg import SetPWMServoState, PWMServoState, RGBState, RGBStates
 
-# Import your modules
+# Import your existing modules
 from Vision.vision import vision_worker
 from Utils.helpers import PIDController
 
-class TurboPiStateMachine(Node):
+class BallChaserNode(Node):
     def __init__(self, data_queue):
-        super().__init__('turbopi_fsm')
+        super().__init__('ball_chaser_test')
         self.data_queue = data_queue
         
-        # --- ROS2 Publishers ---
+        # ROS2 Publishers
         self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 1)
         self.servo_pub = self.create_publisher(SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 1)
         self.rgb_pub = self.create_publisher(RGBStates, 'ros_robot_controller/set_rgb', 1)
@@ -28,11 +28,8 @@ class TurboPiStateMachine(Node):
         # 50Hz control loop
         self.timer = self.create_timer(0.02, self.control_loop) 
         
-        self.state = "SEARCHING_FOR_BALL"
         self.latest_payload = {
-            "ball": {"detected": False, "x": 0, "y": 0, "area": 0},
-            "goal": {"detected": False},
-            "turbopi": {"detected": False}
+            "ball": {"detected": False, "x": 0, "y": 0, "area": 0}
         }
 
         # --- Hardware Variables ---
@@ -41,14 +38,13 @@ class TurboPiStateMachine(Node):
         self.last_linear_x = 0.0
         self.last_angular_z = 0.0
 
-        # --- PID Controllers ---
-        # Gimbal PIDs (Camera tracking the ball)
+        # --- PID Controllers (Gimbal Tracking) ---
         self.pan_pid = PIDController(kp=0.25, ki=0.05, kd=0.009)
         self.tilt_pid = PIDController(kp=0.25, ki=0.05, kd=0.009)
-
-        # Vision Targets for 512x512 camera resolution
+        
+        # Target settings
         self.camera_center_x = 256 
-        self.camera_center_y = 256
+        self.camera_center_y = 256 
         self.target_ball_area = 50000 
 
         # Center the camera and turn on default lights at startup
@@ -65,14 +61,10 @@ class TurboPiStateMachine(Node):
     def publish_servo(self, pan_val, tilt_val):
         """Commands the camera gimbal servos."""
         msg = SetPWMServoState()
-        
-        # ID 2 is Pan (Left/Right), ID 1 is Tilt (Up/Down)
         state_x = PWMServoState()
         state_x.id, state_x.position, state_x.offset = [2], [int(pan_val)], [0]
-        
         state_y = PWMServoState()
         state_y.id, state_y.position, state_y.offset = [1], [int(tilt_val)], [0]
-        
         msg.state = [state_x, state_y]
         msg.duration = 0.02
         self.servo_pub.publish(msg)
@@ -89,37 +81,21 @@ class TurboPiStateMachine(Node):
     # MAIN CONTROL LOOP
     # ---------------------------------------------------------
     def control_loop(self):
+        # Grab the freshest vision data
         if not self.data_queue.empty():
             self.latest_payload = self.data_queue.get()
 
         twist = Twist()
 
-        # STATE: SEARCHING FOR BALL
-        if self.state == "SEARCHING_FOR_BALL":
-            self.publish_rgb(255, 0, 0) # RED = Searching
+        # Check if the ball is visible
+        if self.latest_payload["ball"]["detected"]:
+            self.publish_rgb(0, 0, 255) # BLUE = Actively Tracking
             
-            # Simple search behavior: stop and look around (or spin slowly)
-            twist.linear.x = 0.0
-            twist.angular.z = 0.0
-            
-            if self.latest_payload["ball"]["detected"]:
-                self.get_logger().info("Ball Found! Transitioning to ALIGNING.")
-                self.state = "ALIGNING_TO_BALL"
-
-        # STATE: ALIGNING TO BALL (The Advanced Tracking Strategy)
-        elif self.state == "ALIGNING_TO_BALL":
-            self.publish_rgb(0, 0, 255) # BLUE = Tracking/Aligning
-
-            if not self.latest_payload["ball"]["detected"]:
-                self.get_logger().info("Ball Lost! Transitioning to SEARCHING.")
-                self.state = "SEARCHING_FOR_BALL"
-                return
-
             ball_x = self.latest_payload["ball"]["x"]
             ball_y = self.latest_payload["ball"]["y"]
             ball_area = self.latest_payload["ball"]["area"]
 
-            # Update Camera Gimbal (The "Turret")
+            # 1. Update Camera Gimbal (The "Turret")
             pan_output = self.pan_pid.compute(setpoint=self.camera_center_x, measured_value=ball_x)
             tilt_output = self.tilt_pid.compute(setpoint=self.camera_center_y, measured_value=ball_y)
             
@@ -127,75 +103,77 @@ class TurboPiStateMachine(Node):
             self.servo_y = max(1200, min(1900, self.servo_y - tilt_output))
             self.publish_servo(self.servo_x, self.servo_y)
 
-            # Drive the Chassis using the Turret's error
-            # If the camera has to turn left to see the ball, the wheels will turn left to catch up.
-            raw_angular_z = pan_output * 0.02  # Scale the gimbal output down for the wheels
-            
-            # Simple proportional logic for driving forward based on ball size
-            error_area = self.target_ball_area - ball_area
-            raw_linear_x = error_area * 0.00001 # Extremely small multiplier to start
-            
-            # Apply Velocity Smoothing
-            twist.angular.z = self.smooth_value(raw_angular_z, self.last_angular_z, alpha=0.5)
-            twist.linear.x = self.smooth_value(raw_linear_x, self.last_linear_x, alpha=0.5)
-            
-            # Store history for the next loop's smoothing
+            # 2. Calculate Chassis Speed
+            # Angular speed comes from the pan (left/right) effort of the camera
+            raw_angular_z = pan_output * 0.02
+            # Linear speed comes from the difference in area
+            raw_linear_x = (self.target_ball_area - ball_area) * 0.00001
+
+            # 3. Apply Limits and Smoothing
+            smoothed_angular = self.smooth_value(raw_angular_z, self.last_angular_z)
+            smoothed_linear = self.smooth_value(raw_linear_x, self.last_linear_x)
+
+            twist.angular.z = max(min(smoothed_angular, 1.0), -1.0)
+            twist.linear.x = max(min(smoothed_linear, 0.5), -0.5)
+
+            # Save history
             self.last_angular_z = twist.angular.z
             self.last_linear_x = twist.linear.x
             
-            # Check for Kick Transition
-            if ball_area >= self.target_ball_area and abs(self.camera_center_x - ball_x) < 50:
-                self.get_logger().info("Ball in range! Transitioning to KICKING.")
-                self.state = "KICKING"
+            self.get_logger().info(f"Tracking | Turn: {twist.angular.z:.2f} | Drive: {twist.linear.x:.2f}")
 
-        # STATE: KICKING
-        elif self.state == "KICKING":
-            self.publish_rgb(0, 255, 0) # GREEN = Kicking
+        else:
+            self.publish_rgb(255, 0, 0) # RED = Target Lost
             
-            # Stop moving before kicking
+            # Ball lost: Stop the motors
             twist.linear.x = 0.0
             twist.angular.z = 0.0
+            self.last_linear_x = 0.0
+            self.last_angular_z = 0.0
             
-            # TODO: Trigger physical kick mechanism here
+            self.pan_pid.reset()
+            self.tilt_pid.reset()
             
-            # After kick, return to searching
-            self.state = "SEARCHING_FOR_BALL"
+            self.get_logger().info("Ball lost. Stopping.")
 
-        # Finally, publish the movement command
+        # Send the command to the wheels
         self.cmd_pub.publish(twist)
 
 
 def ros_worker(data_queue):
+    """Initializes ROS2 and spins the test node."""
     rclpy.init()
-    node = TurboPiStateMachine(data_queue)
+    node = BallChaserNode(data_queue)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        # Failsafe: Stop motors, center camera, turn off lights
+        # Failsafe: Stop motors, center camera, turn off lights on shutdown
         node.cmd_pub.publish(Twist())
         node.publish_servo(1500, 1500)
         node.publish_rgb(0, 0, 0)
         node.destroy_node()
         rclpy.shutdown()
 
+
 if __name__ == '__main__':
     payload_queue = Queue(maxsize=1)
     
+    # Start the vision processing and ROS control in parallel
     vision_process = Process(target=vision_worker, args=(payload_queue,))
     ros_process = Process(target=ros_worker, args=(payload_queue,))
 
     try:
-        print("Starting TurboPi Autonomous Routines...")
+        print("Starting TurboPi Chase Test (with Gimbal & Smoothing)...")
         vision_process.start()
         ros_process.start()
         vision_process.join()
         ros_process.join()
     except KeyboardInterrupt:
-        print("\nShutting down TurboPi...")
+        print("\nShutting down test...")
         vision_process.terminate()
         ros_process.terminate()
         vision_process.join()
         ros_process.join()
-        print("Shutdown complete.")
+        print("Test complete.")

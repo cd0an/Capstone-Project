@@ -3,6 +3,7 @@
 # Holds the vision worker function
 
 import cv2
+import time
 from ultralytics import YOLO
 
 # Classes for trained model
@@ -15,14 +16,23 @@ CLASS_MAP = {
 def vision_worker(data_queue):
     # Runs the YOLO model on a dedicated CPU core and pushes 
     # multi-class coordinate payloads to the shared queue
-    model = YOLO('Vision/best.py') 
+    
+    # Load the PyTorch weights
+    model = YOLO('turbopi_ncnn_model', task = 'segment') 
     
     cap = cv2.VideoCapture(0)
+    
+    # Lower resolution for the camera hardware to speed up OpenCV reading 
+    # before YOLO resizes it for inference.
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    
     print("[VISION] Camera and YOLO Model loaded successfully.")
 
     while cap.isOpened():
         success, frame = cap.read()
         if not success:
+            time.sleep(0.01) # Prevent CPU thrashing if camera drops a frame
             continue
 
         results = model.predict(frame, imgsz=512, conf=0.5, verbose=False)
@@ -34,16 +44,27 @@ def vision_worker(data_queue):
         }
 
         if len(results[0].boxes) > 0:
+            # Keep track of the largest area seen so far for each class
+            # This ensures the robot tracks the closest/biggest target, 
+            # ignoring tiny false positives in the background.
+            largest_areas = {"ball": 0, "goal": 0, "turbopi": 0}
+
             for box in results[0].boxes:
                 cls_id = int(box.cls[0])
                 class_name = CLASS_MAP.get(cls_id)
                 
                 if class_name:
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    vision_payload[class_name]["detected"] = True
-                    vision_payload[class_name]["x"] = (x1 + x2) / 2
-                    vision_payload[class_name]["y"] = (y1 + y2) / 2
-                    vision_payload[class_name]["area"] = (x2 - x1) * (y2 - y1)
+                    area = (x2 - x1) * (y2 - y1)
+                    
+                    # Only update the payload if this is the biggest object of this class in the frame
+                    if area > largest_areas[class_name]:
+                        largest_areas[class_name] = area
+                        
+                        vision_payload[class_name]["detected"] = True
+                        vision_payload[class_name]["x"] = (x1 + x2) / 2
+                        vision_payload[class_name]["y"] = (y1 + y2) / 2
+                        vision_payload[class_name]["area"] = area
 
         # Clear backlog and push the freshest payload
         while not data_queue.empty():

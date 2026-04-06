@@ -1,11 +1,10 @@
 import cv2
 from ultralytics import YOLO
 
-# Load trained PyTorch model
-model = YOLO('/turbopi_ncnn_model/model_ncnn.py')
+# 1. Load model and explicitly define task='detect' to fix the warning
+model = YOLO('turbopi_ncnn_model', task='segment')
 
 # Open the default webcam
-# If you plugged in an external USB camera, you might need to change this to 1 or 2
 cap = cv2.VideoCapture(0)
 
 print("Starting live feed... Press 'q' to stop.")
@@ -18,12 +17,10 @@ while cap.isOpened():
         break
 
     # Run Inference
-    # imgsz=512 ensures the black-edge padding matches your Roboflow dataset
-    # conf=0.5 means it will only show polygons if it is 50%+ sure
-    # verbose=False stops the terminal from being spammed with text every frame
     results = model.predict(frame, imgsz=512, conf=0.5, verbose=False)
 
     # Draw the polygons and bounding boxes on the frame
+    # This will no longer crash because model.names is explicitly defined
     annotated_frame = results[0].plot()
 
     # Display the live video feed
