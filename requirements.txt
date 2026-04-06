@@ -10,7 +10,7 @@ matplotlib == 3.7.2 # For visualizing data (optional)
 scipy == 1.11.1 # For advanced math operations (optional)
 
 # YOLO / Deep Learning
-torch == 2.2.0 # PyTorch for YOLO models
+torch == 2.2.1 # PyTorch for YOLO models
 torchvision == 0.17.1 # YOLO model utilities 
 ultralytics == 8.0.169 # YOLOv8 library for training & intference 
 
@@ -18,9 +18,7 @@ ultralytics == 8.0.169 # YOLOv8 library for training & intference
 pandas == 2.1.1 # Handling datasets (e.g., Roboflow CSVs) 
 pyyaml == 6.0 # For config files if needed
 loguru == 0.7.0 # Nice logging instead of print statements 
-
-# For camera access 
-picamera2 == 0.1.11 # Raspberry Pi camera library (if using Pi Camera)
+imutils==0.5.4 # Utilities for image processing (VideoStream, resizing, etc.)
 
 # Docker-friendly helpers
 python-dotenv == 1.0.0 # For loading environment variables (e.g., API keys)

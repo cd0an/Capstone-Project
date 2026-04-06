@@ -1,2 +1,5 @@
 Vision/config.json
 Vision/RawDataset*
+.venv/
+__pycache__/
+venv311/
