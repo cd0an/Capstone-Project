@@ -2,7 +2,7 @@ import cv2
 from ultralytics import YOLO
 
 # Load trained PyTorch model
-model = YOLO('best.pt')
+model = YOLO('/turbopi_ncnn_model/model_ncnn.py')
 
 # Open the default webcam
 # If you plugged in an external USB camera, you might need to change this to 1 or 2
