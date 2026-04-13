@@ -3,4 +3,4 @@ Vision/RawDataset*
 .venv/
 __pycache__/
 venv311/
-Vision/turbopi_ncnn_model*
+Vision/turbopi_ncnn_model.zip
