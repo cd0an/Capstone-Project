@@ -22,7 +22,7 @@ def vision_worker(data_queue):
     model_path = os.path.join(current_dir, 'turbopi_ncnn_model')
     
     # Load the PyTorch weights
-    model = YOLO('model_path', task = 'segment')
+    model = YOLO(model_path, task = 'segment')
     
     model.names = {0: "ball", 1: "goal", 2: "turbopi"} 
     
