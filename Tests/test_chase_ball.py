@@ -51,16 +51,15 @@ class BallChaserNode(Node):
 
         if ball["detected"]:
             # Calculate errors
-            # X error determines turning (yaw), Area error determines forward speed
+            # X error determines turning (yaw)
             error_x = self.center_x - ball["x"]
-            error_area = self.target_area - ball["area"]
 
             # Compute PID outputs
-            angular_z = self.angular_pid.compute(error_x)
+            angular_z = self.angular_pid.compute(self.center_x, ball["x"])
             
             # Only drive forward if we are roughly centered on the ball
             if abs(error_x) < 100: 
-                linear_x = self.linear_pid.compute(error_area)
+                linear_x = self.linear_pid.compute(self.target_area, ball["area"])
                 # Clamp max speed for safety
                 linear_x = max(-0.2, min(0.2, linear_x)) 
             else:
