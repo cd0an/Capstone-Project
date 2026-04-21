@@ -12,7 +12,8 @@ scipy == 1.11.1 # For advanced math operations (optional)
 # YOLO / Deep Learning
 torch == 2.2.1 # PyTorch for YOLO models
 torchvision == 0.17.1 # YOLO model utilities 
-ultralytics == 8.0.169 # YOLOv8 library for training & intference 
+ultralytics == 8.0.169 # YOLOv8 library for training & intference
+ncnn == 1.0.20240102 # NCNN model 
 
 # Utilities 
 pandas == 2.1.1 # Handling datasets (e.g., Roboflow CSVs) 
