@@ -5,6 +5,7 @@
 import cv2
 import time
 from ultralytics import YOLO
+import os
 
 # Classes for trained model
 CLASS_MAP = {
@@ -17,8 +18,13 @@ def vision_worker(data_queue):
     # Runs the YOLO model on a dedicated CPU core and pushes 
     # multi-class coordinate payloads to the shared queue
     
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(current_dir, 'turbopi_ncnn_model')
+    
     # Load the PyTorch weights
-    model = YOLO('turbopi_ncnn_model', task = 'segment') 
+    model = YOLO('model_path', task = 'segment')
+    
+    model.names = {0: "ball", 1: "goal", 2: "turbopi"} 
     
     cap = cv2.VideoCapture(0)
     
