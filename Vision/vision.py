@@ -24,8 +24,6 @@ def vision_worker(data_queue):
     # Load the PyTorch weights
     model = YOLO(model_path, task = 'segment')
     
-    model.names.update({0: "ball", 1: "goal", 2: "turbopi"})
-    
     cap = cv2.VideoCapture(0)
     
     # Lower resolution for the camera hardware to speed up OpenCV reading 
