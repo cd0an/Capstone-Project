@@ -24,7 +24,7 @@ def vision_worker(data_queue):
     # Load the PyTorch weights
     model = YOLO(model_path, task = 'segment')
     
-    model.names = {0: "ball", 1: "goal", 2: "turbopi"} 
+    model.names.update({0: "ball", 1: "goal", 2: "turbopi"})
     
     cap = cv2.VideoCapture(0)
     
