@@ -90,10 +90,17 @@ def ros_worker(data_queue):
     except KeyboardInterrupt:
         pass
     finally:
-        # Failsafe: Stop motors on shutdown
-        node.cmd_pub.publish(Twist())
+        # Failsafe: Ensure context is still okay before trying to publish
+        if rclpy.ok():
+            try:
+                node.cmd_pub.publish(Twist())
+            except Exception:
+                pass
+            
         node.destroy_node()
-        rclpy.shutdown()
+        
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     payload_queue = Queue(maxsize=1)
@@ -110,9 +117,16 @@ if __name__ == '__main__':
         vision_process.join()
         ros_process.join()
     except KeyboardInterrupt:
-        print("\nShutting down processes...")
-        vision_process.terminate()
-        ros_process.terminate()
-        vision_process.join()
-        ros_process.join()
+        print("\nGracefully shutting down processes...")
+        
+        # Wait up to 2 seconds for the children to run their 'finally' shutdown code
+        vision_process.join(timeout=2)
+        ros_process.join(timeout=2)
+        
+        # If they are stuck and still alive after 2 seconds, forcefully terminate them
+        if vision_process.is_alive():
+            vision_process.terminate()
+        if ros_process.is_alive():
+            ros_process.terminate()
+            
         print("Done.")
