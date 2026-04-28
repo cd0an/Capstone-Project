@@ -54,12 +54,17 @@ class SoccerFSMNode(Node):
         self.declare_parameter('lost_ball_forward_speed', 0.08)
         self.declare_parameter('lost_ball_turn_gain', 0.0035)
         self.declare_parameter('ball_align_turn_gain', 0.006)
+        self.declare_parameter('ball_chase_turn_gain', 0.0045)
         self.declare_parameter('goal_align_turn_gain', 0.005)
         self.declare_parameter('goal_drive_speed', 0.10)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
         self.declare_parameter('ball_align_tolerance_px', 110.0)
         self.declare_parameter('goal_align_tolerance_px', 90.0)
         self.declare_parameter('min_align_turn_speed', 0.14)
+        self.declare_parameter('min_chase_turn_speed', 0.08)
+        self.declare_parameter('ball_chase_full_speed_tolerance_px', 90.0)
+        self.declare_parameter('ball_chase_crawl_tolerance_px', 190.0)
+        self.declare_parameter('ball_chase_crawl_speed', 0.04)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -193,18 +198,23 @@ class SoccerFSMNode(Node):
             else:
                 tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
                 tracking_area = self.latest_status.area if self.latest_status.visible else self.last_ball_area
-                twist.angular.z = self.proportional(
+                twist.angular.z = self.biased_turn(
                     tracking_error_x,
-                    float(self.get_parameter('lost_ball_turn_gain').value),
+                    float(self.get_parameter('ball_chase_turn_gain').value),
                     float(self.get_parameter('max_turn_speed').value),
+                    float(self.get_parameter('min_chase_turn_speed').value),
                 )
-                if abs(tracking_error_x) < float(self.get_parameter('ball_center_tolerance_px').value):
+                full_speed_tolerance = float(self.get_parameter('ball_chase_full_speed_tolerance_px').value)
+                crawl_tolerance = float(self.get_parameter('ball_chase_crawl_tolerance_px').value)
+                if abs(tracking_error_x) < full_speed_tolerance:
                     area_error = float(self.get_parameter('ball_area_target').value) - tracking_area
                     if area_error > 0.0:
                         commanded_speed = self.proportional(area_error, 0.000012, float(self.get_parameter('max_linear_speed').value))
                         twist.linear.x = max(float(self.get_parameter('min_forward_speed').value), commanded_speed)
                     else:
                         twist.linear.x = 0.0
+                elif abs(tracking_error_x) < crawl_tolerance:
+                    twist.linear.x = float(self.get_parameter('ball_chase_crawl_speed').value)
                 elif not self.latest_status.visible:
                     twist.linear.x = float(self.get_parameter('lost_ball_forward_speed').value)
                 if self.latest_status.in_range:
