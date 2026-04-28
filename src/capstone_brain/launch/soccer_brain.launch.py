@@ -3,6 +3,8 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    # Keep launch simple: detector publishes perception, tracker owns the gimbal,
+    # and the FSM publishes robot motion and state-driven LEDs.
     return LaunchDescription([
         Node(
             package='capstone_brain',

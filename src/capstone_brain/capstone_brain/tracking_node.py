@@ -6,8 +6,6 @@ from geometry_msgs.msg import Point
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from .pid import PIDController
-
 
 @dataclass
 class DetectionSnapshot:
@@ -97,12 +95,17 @@ class TrackingNode(Node):
         msg.y = float(tilt_value)
         self.gimbal_pub.publish(msg)
 
+    def current_pan_error(self):
+        pan_center = float(self.get_parameter('pan_center').value)
+        return float(self.servo_x - pan_center)
+
     def control_loop(self):
         detection, stale, age = self.current_detection()
         status = TrackingStatus()
         status.stamp = self.get_clock().now().to_msg()
         status.target_class = self.target_class
         status.stale = stale
+        status.pan_error = self.current_pan_error()
 
         if self.mode == 'HOLD':
             if detection is not None:
@@ -126,6 +129,8 @@ class TrackingNode(Node):
             return
 
         if self.mode == 'CHASE':
+            # During chase the chassis owns steering; the gimbal stays where it is
+            # and only reports status back to the FSM.
             if detection is not None:
                 target_center_x = detection.frame_width / 2.0
                 target_center_y = detection.frame_height / 2.0
@@ -163,6 +168,7 @@ class TrackingNode(Node):
 
             self.servo_y = tilt_center
             self.publish_gimbal(self.servo_x, self.servo_y)
+            status.pan_error = self.current_pan_error()
             status.visible = False
             status.centered = False
             status.in_range = False
@@ -180,6 +186,7 @@ class TrackingNode(Node):
             status.confidence = float(detection.confidence)
             status.frame_width = int(detection.frame_width)
             status.frame_height = int(detection.frame_height)
+            status.pan_error = self.current_pan_error()
             self.publish_gimbal(self.servo_x, self.servo_y)
             self.status_pub.publish(status)
             return
@@ -200,6 +207,7 @@ class TrackingNode(Node):
 
             self.servo_y = tilt_center
             self.publish_gimbal(self.servo_x, self.servo_y)
+            status.pan_error = self.current_pan_error()
             status.visible = False
             status.centered = False
             status.in_range = False
@@ -213,6 +221,8 @@ class TrackingNode(Node):
 
         deadband = float(self.get_parameter('tracking_deadband_px').value)
         pan_step = float(self.get_parameter('pan_track_step').value)
+        # During acquisition/alignment the gimbal is allowed to walk the target
+        # across the frame, but only in small steps so the chassis still has to turn.
         if error_x > deadband:
             self.servo_x = max(float(self.get_parameter('pan_min').value), self.servo_x + pan_step)
         elif error_x < -deadband:
@@ -233,6 +243,8 @@ class TrackingNode(Node):
         status.confidence = float(detection.confidence)
         status.frame_width = int(detection.frame_width)
         status.frame_height = int(detection.frame_height)
+        
+        status.pan_error = self.current_pan_error()
         self.status_pub.publish(status)
 
 

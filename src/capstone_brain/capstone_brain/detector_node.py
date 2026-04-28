@@ -61,6 +61,8 @@ class DetectorNode(Node):
         frame_height, frame_width = frame.shape[:2]
         largest_by_class = {}
         if results and len(results[0].boxes) > 0:
+            # Keep only the largest instance per class so downstream control does not
+            # have to arbitrate between multiple candidates in one frame.
             for box in results[0].boxes:
                 cls_id = int(box.cls[0])
                 class_name = CLASS_MAP.get(cls_id)

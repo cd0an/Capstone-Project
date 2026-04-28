@@ -2,6 +2,8 @@ import time
 
 
 class PIDController:
+    """Small reusable PID block for any node that needs time-based correction."""
+
     def __init__(self, kp, ki, kd):
         self.kp = kp
         self.ki = ki

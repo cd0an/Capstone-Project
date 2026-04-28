@@ -50,12 +50,13 @@ class SoccerFSMNode(Node):
         self.declare_parameter('lost_ball_forward_speed', 0.06)
         self.declare_parameter('lost_ball_turn_gain', 0.01)
         self.declare_parameter('ball_align_turn_gain', 0.012)
-        self.declare_parameter('ball_chase_turn_gain', 0.01)
+        self.declare_parameter('ball_chase_pan_gain', 0.0035)
+        self.declare_parameter('ball_chase_image_gain', 0.002)
         self.declare_parameter('goal_align_turn_gain', 0.01)
         self.declare_parameter('goal_drive_speed', 0.12)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
-        self.declare_parameter('ball_align_tolerance_px', 90.0)
-        self.declare_parameter('goal_align_tolerance_px', 80.0)
+        self.declare_parameter('ball_align_pan_tolerance', 50.0)
+        self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.22)
         self.declare_parameter('min_chase_turn_speed', 0.18)
         self.declare_parameter('ball_chase_drive_threshold_px', 170.0)
@@ -73,6 +74,8 @@ class SoccerFSMNode(Node):
         self.last_goal_seen_time = self.now_seconds()
         self.last_ball_error_x = 0.0
         self.last_ball_area = 0.0
+        self.last_ball_pan_error = 0.0
+        self.last_goal_pan_error = 0.0
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -106,8 +109,10 @@ class SoccerFSMNode(Node):
             self.last_ball_seen_time = now
             self.last_ball_error_x = float(msg.error_x)
             self.last_ball_area = float(msg.area)
+            self.last_ball_pan_error = float(msg.pan_error)
         if msg.target_class == 'goal' and msg.visible and not msg.stale:
             self.last_goal_seen_time = now
+            self.last_goal_pan_error = float(msg.pan_error)
 
     def get_detection(self, class_name, stale_timeout=0.4):
         detection = self.detections.get(class_name)
@@ -165,6 +170,7 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('SEARCH')
             self.publish_rgb(255, 0, 0)
+            # Search is a slow body sweep while the tracker pans the camera.
             twist.angular.z = 0.35
             if ball_detection is not None:
                 self.last_ball_seen_time = now
@@ -181,14 +187,15 @@ class SoccerFSMNode(Node):
             if lost_ball:
                 self.transition(self.RECOVER)
             else:
-                tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
+                # Align the chassis to the ball by driving the gimbal back toward neutral.
+                camera_angle_error = self.latest_status.pan_error if self.latest_status.visible else self.last_ball_pan_error
                 twist.angular.z = self.biased_turn(
-                    tracking_error_x,
+                    camera_angle_error,
                     float(self.get_parameter('ball_align_turn_gain').value),
                     float(self.get_parameter('max_turn_speed').value),
                     float(self.get_parameter('min_align_turn_speed').value),
                 )
-                if abs(tracking_error_x) < float(self.get_parameter('ball_align_tolerance_px').value):
+                if abs(camera_angle_error) < float(self.get_parameter('ball_align_pan_tolerance').value):
                     self.transition(self.APPROACH_BALL)
 
         elif self.state == self.APPROACH_BALL:
@@ -203,27 +210,35 @@ class SoccerFSMNode(Node):
             if lost_ball:
                 self.transition(self.RECOVER)
             else:
-                tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
+                # Chase uses both chassis-vs-gimbal alignment and residual image error.
+                pan_error = self.latest_status.pan_error if self.latest_status.visible else self.last_ball_pan_error
+                image_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
                 tracking_area = self.latest_status.area if self.latest_status.visible else self.last_ball_area
-                abs_error_x = abs(tracking_error_x)
+                combined_turn_error = (
+                    (pan_error * float(self.get_parameter('ball_chase_pan_gain').value)) +
+                    (image_error_x * float(self.get_parameter('ball_chase_image_gain').value))
+                )
+                abs_pan_error = abs(pan_error)
                 if self.latest_status.visible:
                     twist.angular.z = self.biased_turn(
-                        tracking_error_x,
-                        float(self.get_parameter('ball_chase_turn_gain').value),
+                        combined_turn_error,
+                        1.0,
                         float(self.get_parameter('ball_chase_max_turn_speed').value),
                         float(self.get_parameter('min_chase_turn_speed').value),
                     )
-                    if abs_error_x >= float(self.get_parameter('ball_chase_hard_turn_threshold_px').value):
+                    if abs_pan_error >= float(self.get_parameter('ball_chase_hard_turn_threshold_px').value):
                         twist.linear.x = 0.0
                     else:
                         area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
                         commanded_speed = self.proportional(area_error, 0.00001, float(self.get_parameter('ball_chase_max_speed').value))
                         twist.linear.x = max(float(self.get_parameter('ball_chase_base_speed').value), commanded_speed)
-                        if abs_error_x >= float(self.get_parameter('ball_chase_drive_threshold_px').value):
+                        if abs_pan_error >= float(self.get_parameter('ball_chase_drive_threshold_px').value):
                             twist.linear.x = min(twist.linear.x, float(self.get_parameter('lost_ball_forward_speed').value))
                 else:
+                    # Brief detector dropouts should keep the robot committed to the
+                    # last known ball direction instead of forcing an immediate search.
                     twist.angular.z = self.biased_turn(
-                        tracking_error_x,
+                        pan_error,
                         float(self.get_parameter('lost_ball_turn_gain').value),
                         float(self.get_parameter('ball_chase_max_turn_speed').value),
                         float(self.get_parameter('min_chase_turn_speed').value),
@@ -260,13 +275,14 @@ class SoccerFSMNode(Node):
             if lost_goal:
                 self.transition(self.SEARCH_GOAL)
             else:
+                goal_pan_error = self.latest_status.pan_error if self.latest_status.visible else self.last_goal_pan_error
                 twist.angular.z = self.biased_turn(
-                    self.latest_status.error_x,
+                    goal_pan_error,
                     float(self.get_parameter('goal_align_turn_gain').value),
                     float(self.get_parameter('max_turn_speed').value),
                     float(self.get_parameter('min_align_turn_speed').value),
                 )
-                if abs(self.latest_status.error_x) < float(self.get_parameter('goal_align_tolerance_px').value):
+                if abs(goal_pan_error) < float(self.get_parameter('goal_align_pan_tolerance').value):
                     self.transition(self.DRIVE_TO_GOAL)
 
         elif self.state == self.DRIVE_TO_GOAL:
