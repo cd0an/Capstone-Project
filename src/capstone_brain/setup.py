@@ -5,7 +5,11 @@ import os
 package_name = "capstone_brain"
 package_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(package_dir, "..", ".."))
-model_files = glob(os.path.join(repo_root, "Vision", "turbopi_ncnn_model", "*"))
+model_source_dir = os.path.join(repo_root, "Vision", "turbopi_ncnn_model")
+model_files = [
+    os.path.relpath(path, package_dir)
+    for path in glob(os.path.join(model_source_dir, "*"))
+]
 
 setup(
     name=package_name,
