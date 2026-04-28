@@ -74,9 +74,8 @@ class SoccerFSMNode(Node):
 
     def detections_callback(self, msg):
         now = self.now_seconds()
-        updated = {}
         for detection in msg.detections:
-            updated[detection.class_name] = DetectionSnapshot(
+            self.detections[detection.class_name] = DetectionSnapshot(
                 class_name=detection.class_name,
                 center_x=detection.center_x,
                 center_y=detection.center_y,
@@ -86,7 +85,6 @@ class SoccerFSMNode(Node):
                 frame_height=detection.frame_height,
                 received_time=now,
             )
-        self.detections = updated
 
     def status_callback(self, msg):
         self.latest_status = msg

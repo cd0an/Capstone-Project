@@ -34,11 +34,14 @@ class TrackingNode(Node):
         self.declare_parameter('pan_max', 2200.0)
         self.declare_parameter('tilt_min', 1200.0)
         self.declare_parameter('tilt_max', 1900.0)
-        self.declare_parameter('scan_step', 18.0)
+        self.declare_parameter('scan_step', 6.0)
         self.declare_parameter('center_tolerance_px', 40.0)
         self.declare_parameter('close_area_ball', 50000.0)
         self.declare_parameter('stale_timeout_sec', 1.0)
         self.declare_parameter('hold_last_target_timeout_sec', 1.8)
+        self.declare_parameter('pan_output_limit', 35.0)
+        self.declare_parameter('tilt_output_limit', 30.0)
+        self.declare_parameter('tracking_deadband_px', 12.0)
 
         self.target_class = 'ball'
         self.servo_x = float(self.get_parameter('pan_center').value)
@@ -57,9 +60,8 @@ class TrackingNode(Node):
 
     def detections_callback(self, msg):
         now = self.get_clock().now().nanoseconds / 1e9
-        updated = {}
         for detection in msg.detections:
-            updated[detection.class_name] = DetectionSnapshot(
+            self.detections[detection.class_name] = DetectionSnapshot(
                 class_name=detection.class_name,
                 center_x=detection.center_x,
                 center_y=detection.center_y,
@@ -69,7 +71,6 @@ class TrackingNode(Node):
                 frame_height=detection.frame_height,
                 received_time=now,
             )
-        self.detections = updated
 
     def track_target_callback(self, msg):
         requested = msg.data.strip()
@@ -165,8 +166,23 @@ class TrackingNode(Node):
         error_x = target_center_x - detection.center_x
         error_y = target_center_y - detection.center_y
 
-        pan_output = self.pan_pid.compute(setpoint=target_center_x, measured_value=detection.center_x)
-        tilt_output = self.tilt_pid.compute(setpoint=target_center_y, measured_value=detection.center_y)
+        deadband = float(self.get_parameter('tracking_deadband_px').value)
+        if abs(error_x) <= deadband:
+            pan_output = 0.0
+            self.pan_pid.reset()
+        else:
+            pan_output = self.pan_pid.compute(setpoint=target_center_x, measured_value=detection.center_x)
+
+        if abs(error_y) <= deadband:
+            tilt_output = 0.0
+            self.tilt_pid.reset()
+        else:
+            tilt_output = self.tilt_pid.compute(setpoint=target_center_y, measured_value=detection.center_y)
+
+        pan_limit = float(self.get_parameter('pan_output_limit').value)
+        tilt_limit = float(self.get_parameter('tilt_output_limit').value)
+        pan_output = max(-pan_limit, min(pan_limit, pan_output))
+        tilt_output = max(-tilt_limit, min(tilt_limit, tilt_output))
 
         self.servo_x = max(float(self.get_parameter('pan_min').value), min(float(self.get_parameter('pan_max').value), self.servo_x + pan_output))
         self.servo_y = max(float(self.get_parameter('tilt_min').value), min(float(self.get_parameter('tilt_max').value), self.servo_y - tilt_output))
