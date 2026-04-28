@@ -43,7 +43,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('forward_sign', 1.0)
         self.declare_parameter('turn_sign', 1.0)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_turn_speed', 0.5)
+        self.declare_parameter('search_turn_speed', 0.8)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 1.0)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -62,6 +62,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_drive_speed', 0.35)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
         self.declare_parameter('ball_align_pan_tolerance', 50.0)
+        self.declare_parameter('ball_align_forward_pan_threshold', 140.0)
+        self.declare_parameter('ball_align_forward_speed', 0.18)
+        self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.4)
         self.declare_parameter('min_chase_turn_speed', 0.2)
@@ -217,7 +220,12 @@ class SoccerFSMNode(Node):
                     float(self.get_parameter('min_align_turn_speed').value),
                 )
                 twist.angular.z *= turn_sign
-                if abs(camera_angle_error) < float(self.get_parameter('ball_align_pan_tolerance').value):
+                if abs(camera_angle_error) < float(self.get_parameter('ball_align_forward_pan_threshold').value):
+                    twist.linear.x = forward_sign * float(self.get_parameter('ball_align_forward_speed').value)
+                if (
+                    abs(camera_angle_error) < float(self.get_parameter('ball_align_pan_tolerance').value) or
+                    (state_elapsed >= float(self.get_parameter('ball_align_timeout_sec').value) and self.latest_status.visible)
+                ):
                     self.transition(self.APPROACH_BALL)
 
         elif self.state == self.APPROACH_BALL:
