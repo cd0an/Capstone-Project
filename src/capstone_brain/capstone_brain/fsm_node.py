@@ -46,12 +46,16 @@ class SoccerFSMNode(Node):
         self.declare_parameter('kick_ready_hold_sec', 0.5)
         self.declare_parameter('kick_duration_sec', 0.45)
         self.declare_parameter('goal_search_timeout_sec', 4.0)
+        self.declare_parameter('ball_lost_timeout_sec', 1.0)
+        self.declare_parameter('goal_lost_timeout_sec', 1.0)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
         self.latest_status = TrackingStatus()
         self.detections = {}
         self.track_target = 'ball'
+        self.last_ball_seen_time = self.now_seconds()
+        self.last_goal_seen_time = self.now_seconds()
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -81,6 +85,11 @@ class SoccerFSMNode(Node):
 
     def status_callback(self, msg):
         self.latest_status = msg
+        now = self.now_seconds()
+        if msg.target_class == 'ball' and msg.visible and not msg.stale:
+            self.last_ball_seen_time = now
+        if msg.target_class == 'goal' and msg.visible and not msg.stale:
+            self.last_goal_seen_time = now
 
     def get_detection(self, class_name, stale_timeout=0.4):
         detection = self.detections.get(class_name)
@@ -118,19 +127,25 @@ class SoccerFSMNode(Node):
         twist = Twist()
         ball_detection = self.get_detection('ball')
         goal_detection = self.get_detection('goal')
-        state_elapsed = self.now_seconds() - self.state_enter_time
+        now = self.now_seconds()
+        state_elapsed = now - self.state_enter_time
 
         if self.state == self.SEARCH_BALL:
             self.publish_target('ball')
             self.publish_rgb(255, 0, 0)
             twist.angular.z = 0.35
             if ball_detection is not None:
+                self.last_ball_seen_time = now
                 self.transition(self.CENTER_BALL)
 
         elif self.state == self.CENTER_BALL:
             self.publish_target('ball')
             self.publish_rgb(0, 0, 255)
-            if self.latest_status.target_class != 'ball' or not self.latest_status.visible or self.latest_status.stale:
+            lost_ball = (
+                self.latest_status.target_class != 'ball' or
+                (now - self.last_ball_seen_time) > float(self.get_parameter('ball_lost_timeout_sec').value)
+            )
+            if lost_ball:
                 self.transition(self.RECOVER)
             else:
                 twist.angular.z = self.proportional(self.latest_status.error_x, 0.003, float(self.get_parameter('max_turn_speed').value))
@@ -140,7 +155,11 @@ class SoccerFSMNode(Node):
         elif self.state == self.APPROACH_BALL:
             self.publish_target('ball')
             self.publish_rgb(0, 120, 255)
-            if self.latest_status.target_class != 'ball' or not self.latest_status.visible or self.latest_status.stale:
+            lost_ball = (
+                self.latest_status.target_class != 'ball' or
+                (now - self.last_ball_seen_time) > float(self.get_parameter('ball_lost_timeout_sec').value)
+            )
+            if lost_ball:
                 self.transition(self.RECOVER)
             else:
                 twist.angular.z = self.proportional(self.latest_status.error_x, 0.003, float(self.get_parameter('max_turn_speed').value))
@@ -156,6 +175,7 @@ class SoccerFSMNode(Node):
             self.publish_target('goal')
             self.publish_rgb(255, 255, 0)
             if goal_detection is not None and self.latest_status.target_class == 'goal' and self.latest_status.visible:
+                self.last_goal_seen_time = now
                 self.transition(self.ALIGN_TO_GOAL)
             elif state_elapsed > float(self.get_parameter('goal_search_timeout_sec').value):
                 self.transition(self.RECOVER)
@@ -165,7 +185,11 @@ class SoccerFSMNode(Node):
         elif self.state == self.ALIGN_TO_GOAL:
             self.publish_target('goal')
             self.publish_rgb(255, 165, 0)
-            if self.latest_status.target_class != 'goal' or not self.latest_status.visible or self.latest_status.stale:
+            lost_goal = (
+                self.latest_status.target_class != 'goal' or
+                (now - self.last_goal_seen_time) > float(self.get_parameter('goal_lost_timeout_sec').value)
+            )
+            if lost_goal:
                 self.transition(self.SEARCH_GOAL)
             else:
                 twist.linear.y = self.proportional(self.latest_status.error_x, 0.0015, float(self.get_parameter('max_strafe_speed').value))
@@ -205,4 +229,5 @@ def main(args=None):
     finally:
         node.cmd_pub.publish(Twist())
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()

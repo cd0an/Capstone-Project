@@ -37,7 +37,7 @@ class TrackingNode(Node):
         self.declare_parameter('scan_step', 18.0)
         self.declare_parameter('center_tolerance_px', 40.0)
         self.declare_parameter('close_area_ball', 50000.0)
-        self.declare_parameter('stale_timeout_sec', 0.35)
+        self.declare_parameter('stale_timeout_sec', 1.0)
 
         self.target_class = 'ball'
         self.servo_x = float(self.get_parameter('pan_center').value)
@@ -157,4 +157,5 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
