@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import signal
 import time
 
 import rclpy
@@ -99,8 +100,11 @@ class TrackingNode(Node):
     def stop_outputs(self):
         pan_center = float(self.get_parameter('pan_center').value)
         tilt_center = float(self.get_parameter('tilt_center').value)
-        for _ in range(3):
-            self.publish_gimbal(pan_center, tilt_center)
+        for _ in range(5):
+            try:
+                self.publish_gimbal(pan_center, tilt_center)
+            except Exception:
+                break
             time.sleep(0.05)
 
     def current_pan_error(self):
@@ -259,12 +263,28 @@ class TrackingNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = TrackingNode()
+    stop_requested = False
+
+    def handle_exit_signal(signum, frame):
+        nonlocal stop_requested
+        if not stop_requested:
+            stop_requested = True
+            node.stop_outputs()
+        raise KeyboardInterrupt()
+
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGINT, handle_exit_signal)
+    signal.signal(signal.SIGTERM, handle_exit_signal)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        node.stop_outputs()
+        if not stop_requested:
+            node.stop_outputs()
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import signal
 import time
 
 import rclpy
@@ -56,6 +57,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_align_turn_gain', 0.02)
         self.declare_parameter('ball_chase_pan_gain', 0.004)
         self.declare_parameter('ball_chase_image_gain', 0.0025)
+        self.declare_parameter('ball_chase_close_turn_scale', 0.35)
         self.declare_parameter('goal_align_turn_gain', 0.02)
         self.declare_parameter('goal_drive_speed', 0.35)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
@@ -156,9 +158,12 @@ class SoccerFSMNode(Node):
         # receive a zero command before the ROS graph tears down.
         zero_twist = Twist()
         leds_off = Point()
-        for _ in range(3):
-            self.cmd_pub.publish(zero_twist)
-            self.rgb_pub.publish(leds_off)
+        for _ in range(5):
+            try:
+                self.cmd_pub.publish(zero_twist)
+                self.rgb_pub.publish(leds_off)
+            except Exception:
+                break
             time.sleep(0.05)
 
     def proportional(self, error, gain, limit):
@@ -243,6 +248,10 @@ class SoccerFSMNode(Node):
                         float(self.get_parameter('ball_chase_max_turn_speed').value),
                         float(self.get_parameter('min_chase_turn_speed').value),
                     )
+                    target_area = float(self.get_parameter('ball_area_target').value)
+                    proximity = min(1.0, tracking_area / target_area) if target_area > 0.0 else 0.0
+                    close_turn_scale = float(self.get_parameter('ball_chase_close_turn_scale').value)
+                    twist.angular.z *= max(close_turn_scale, 1.0 - (0.65 * proximity))
                     twist.angular.z *= turn_sign
                     if abs_pan_error >= float(self.get_parameter('ball_chase_hard_turn_threshold_px').value):
                         twist.linear.x = 0.0
@@ -336,12 +345,28 @@ class SoccerFSMNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = SoccerFSMNode()
+    stop_requested = False
+
+    def handle_exit_signal(signum, frame):
+        nonlocal stop_requested
+        if not stop_requested:
+            stop_requested = True
+            node.stop_outputs()
+        raise KeyboardInterrupt()
+
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGINT, handle_exit_signal)
+    signal.signal(signal.SIGTERM, handle_exit_signal)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        node.stop_outputs()
+        if not stop_requested:
+            node.stop_outputs()
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
