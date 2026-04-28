@@ -57,6 +57,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_turn_gain', 0.005)
         self.declare_parameter('goal_drive_speed', 0.10)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
+        self.declare_parameter('ball_align_tolerance_px', 110.0)
+        self.declare_parameter('goal_align_tolerance_px', 90.0)
+        self.declare_parameter('min_align_turn_speed', 0.14)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -134,6 +137,14 @@ class SoccerFSMNode(Node):
         value = error * gain
         return max(-limit, min(limit, value))
 
+    def biased_turn(self, error, gain, limit, min_turn):
+        turn = self.proportional(error, gain, limit)
+        if abs(error) < 1.0:
+            return 0.0
+        if abs(turn) < min_turn:
+            return min_turn if turn >= 0.0 else -min_turn
+        return turn
+
     def control_loop(self):
         twist = Twist()
         ball_detection = self.get_detection('ball')
@@ -160,12 +171,13 @@ class SoccerFSMNode(Node):
                 self.transition(self.RECOVER)
             else:
                 tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
-                twist.angular.z = self.proportional(
+                twist.angular.z = self.biased_turn(
                     tracking_error_x,
                     float(self.get_parameter('ball_align_turn_gain').value),
                     float(self.get_parameter('max_turn_speed').value),
+                    float(self.get_parameter('min_align_turn_speed').value),
                 )
-                if self.latest_status.centered:
+                if abs(tracking_error_x) < float(self.get_parameter('ball_align_tolerance_px').value):
                     self.transition(self.APPROACH_BALL)
 
         elif self.state == self.APPROACH_BALL:
@@ -223,12 +235,13 @@ class SoccerFSMNode(Node):
             if lost_goal:
                 self.transition(self.SEARCH_GOAL)
             else:
-                twist.angular.z = self.proportional(
+                twist.angular.z = self.biased_turn(
                     self.latest_status.error_x,
                     float(self.get_parameter('goal_align_turn_gain').value),
                     float(self.get_parameter('max_turn_speed').value),
+                    float(self.get_parameter('min_align_turn_speed').value),
                 )
-                if abs(self.latest_status.error_x) < float(self.get_parameter('goal_center_tolerance_px').value):
+                if abs(self.latest_status.error_x) < float(self.get_parameter('goal_align_tolerance_px').value):
                     self.transition(self.DRIVE_TO_GOAL)
 
         elif self.state == self.DRIVE_TO_GOAL:
