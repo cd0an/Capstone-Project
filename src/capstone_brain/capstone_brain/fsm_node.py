@@ -21,11 +21,12 @@ class DetectionSnapshot:
 
 class SoccerFSMNode(Node):
     SEARCH_BALL = 'SEARCH_BALL'
-    CENTER_BALL = 'CENTER_BALL'
+    ALIGN_TO_BALL = 'ALIGN_TO_BALL'
     APPROACH_BALL = 'APPROACH_BALL'
+    BALL_POSSESSION = 'BALL_POSSESSION'
     SEARCH_GOAL = 'SEARCH_GOAL'
     ALIGN_TO_GOAL = 'ALIGN_TO_GOAL'
-    KICK_READY = 'KICK_READY'
+    DRIVE_TO_GOAL = 'DRIVE_TO_GOAL'
     KICK = 'KICK'
     RECOVER = 'RECOVER'
 
@@ -37,21 +38,25 @@ class SoccerFSMNode(Node):
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('rgb_topic', '/manual_rgb_cmd')
         self.declare_parameter('ball_center_tolerance_px', 140.0)
-        self.declare_parameter('goal_center_tolerance_px', 50.0)
+        self.declare_parameter('goal_center_tolerance_px', 70.0)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('max_linear_speed', 0.22)
         self.declare_parameter('max_strafe_speed', 0.18)
         self.declare_parameter('max_turn_speed', 0.45)
         self.declare_parameter('min_forward_speed', 0.06)
         self.declare_parameter('recover_duration_sec', 1.0)
-        self.declare_parameter('kick_ready_hold_sec', 0.5)
+        self.declare_parameter('ball_possession_hold_sec', 0.6)
         self.declare_parameter('kick_duration_sec', 0.45)
-        self.declare_parameter('goal_search_timeout_sec', 4.0)
+        self.declare_parameter('goal_search_timeout_sec', 5.0)
         self.declare_parameter('ball_lost_timeout_sec', 1.0)
         self.declare_parameter('goal_lost_timeout_sec', 1.0)
         self.declare_parameter('ball_memory_timeout_sec', 1.8)
         self.declare_parameter('lost_ball_forward_speed', 0.08)
         self.declare_parameter('lost_ball_turn_gain', 0.0035)
+        self.declare_parameter('ball_align_turn_gain', 0.006)
+        self.declare_parameter('goal_align_turn_gain', 0.005)
+        self.declare_parameter('goal_drive_speed', 0.10)
+        self.declare_parameter('goal_drive_duration_sec', 1.2)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -142,9 +147,9 @@ class SoccerFSMNode(Node):
             twist.angular.z = 0.35
             if ball_detection is not None:
                 self.last_ball_seen_time = now
-                self.transition(self.CENTER_BALL)
+                self.transition(self.ALIGN_TO_BALL)
 
-        elif self.state == self.CENTER_BALL:
+        elif self.state == self.ALIGN_TO_BALL:
             self.publish_target('ball')
             self.publish_rgb(0, 0, 255)
             lost_ball = (
@@ -155,7 +160,11 @@ class SoccerFSMNode(Node):
                 self.transition(self.RECOVER)
             else:
                 tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
-                twist.angular.z = self.proportional(tracking_error_x, 0.003, float(self.get_parameter('max_turn_speed').value))
+                twist.angular.z = self.proportional(
+                    tracking_error_x,
+                    float(self.get_parameter('ball_align_turn_gain').value),
+                    float(self.get_parameter('max_turn_speed').value),
+                )
                 if self.latest_status.centered:
                     self.transition(self.APPROACH_BALL)
 
@@ -187,7 +196,13 @@ class SoccerFSMNode(Node):
                 elif not self.latest_status.visible:
                     twist.linear.x = float(self.get_parameter('lost_ball_forward_speed').value)
                 if self.latest_status.in_range:
-                    self.transition(self.SEARCH_GOAL)
+                    self.transition(self.BALL_POSSESSION)
+
+        elif self.state == self.BALL_POSSESSION:
+            self.publish_target('ball')
+            self.publish_rgb(0, 255, 0)
+            if state_elapsed >= float(self.get_parameter('ball_possession_hold_sec').value):
+                self.transition(self.SEARCH_GOAL)
 
         elif self.state == self.SEARCH_GOAL:
             self.publish_target('goal')
@@ -197,8 +212,6 @@ class SoccerFSMNode(Node):
                 self.transition(self.ALIGN_TO_GOAL)
             elif state_elapsed > float(self.get_parameter('goal_search_timeout_sec').value):
                 self.transition(self.RECOVER)
-            else:
-                twist.angular.z = 0.25
 
         elif self.state == self.ALIGN_TO_GOAL:
             self.publish_target('goal')
@@ -210,19 +223,24 @@ class SoccerFSMNode(Node):
             if lost_goal:
                 self.transition(self.SEARCH_GOAL)
             else:
-                twist.linear.y = self.proportional(self.latest_status.error_x, 0.0015, float(self.get_parameter('max_strafe_speed').value))
+                twist.angular.z = self.proportional(
+                    self.latest_status.error_x,
+                    float(self.get_parameter('goal_align_turn_gain').value),
+                    float(self.get_parameter('max_turn_speed').value),
+                )
                 if abs(self.latest_status.error_x) < float(self.get_parameter('goal_center_tolerance_px').value):
-                    self.transition(self.KICK_READY)
+                    self.transition(self.DRIVE_TO_GOAL)
 
-        elif self.state == self.KICK_READY:
+        elif self.state == self.DRIVE_TO_GOAL:
             self.publish_target('goal')
-            self.publish_rgb(0, 255, 0)
-            if state_elapsed >= float(self.get_parameter('kick_ready_hold_sec').value):
+            self.publish_rgb(255, 255, 255)
+            twist.linear.x = float(self.get_parameter('goal_drive_speed').value)
+            if state_elapsed >= float(self.get_parameter('goal_drive_duration_sec').value):
                 self.transition(self.KICK)
 
         elif self.state == self.KICK:
             self.publish_target('goal')
-            self.publish_rgb(255, 255, 255)
+            self.publish_rgb(0, 255, 255)
             if state_elapsed < float(self.get_parameter('kick_duration_sec').value):
                 twist.linear.x = 0.15
             else:
