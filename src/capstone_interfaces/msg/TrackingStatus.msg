@@ -1,4 +1,4 @@
-builtin_interfaces/Time stamp stamp
+builtin_interfaces/Time stamp
 string target_class
 bool visible
 bool centered
