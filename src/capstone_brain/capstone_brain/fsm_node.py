@@ -41,7 +41,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('forward_sign', 1.0)
         self.declare_parameter('turn_sign', 1.0)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('max_turn_speed', 5.0)
+        self.declare_parameter('search_turn_speed', 2.5)
+        self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 1.0)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
         self.declare_parameter('kick_duration_sec', 0.45)
@@ -50,21 +51,21 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_lost_timeout_sec', 1.0)
         self.declare_parameter('ball_memory_timeout_sec', 2.2)
         self.declare_parameter('lost_ball_forward_speed', 0.22)
-        self.declare_parameter('lost_ball_turn_gain', 0.04)
-        self.declare_parameter('ball_align_turn_gain', 0.03)
-        self.declare_parameter('ball_chase_pan_gain', 0.01)
-        self.declare_parameter('ball_chase_image_gain', 0.008)
-        self.declare_parameter('goal_align_turn_gain', 0.03)
+        self.declare_parameter('lost_ball_turn_gain', 0.02)
+        self.declare_parameter('ball_align_turn_gain', 0.02)
+        self.declare_parameter('ball_chase_pan_gain', 0.004)
+        self.declare_parameter('ball_chase_image_gain', 0.0025)
+        self.declare_parameter('goal_align_turn_gain', 0.02)
         self.declare_parameter('goal_drive_speed', 0.35)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
         self.declare_parameter('ball_align_pan_tolerance', 50.0)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
-        self.declare_parameter('min_align_turn_speed', 0.7)
-        self.declare_parameter('min_chase_turn_speed', 0.5)
+        self.declare_parameter('min_align_turn_speed', 0.4)
+        self.declare_parameter('min_chase_turn_speed', 0.2)
         self.declare_parameter('ball_chase_drive_threshold_px', 170.0)
         self.declare_parameter('ball_chase_hard_turn_threshold_px', 250.0)
         self.declare_parameter('ball_chase_base_speed', 0.35)
-        self.declare_parameter('ball_chase_max_turn_speed', 3.5)
+        self.declare_parameter('ball_chase_max_turn_speed', 1.2)
         self.declare_parameter('ball_chase_max_speed', 0.6)
 
         self.state = self.SEARCH_BALL
@@ -175,7 +176,7 @@ class SoccerFSMNode(Node):
             self.publish_mode('SEARCH')
             self.publish_rgb(255, 0, 0)
             # Search is a slow body sweep while the tracker pans the camera.
-            twist.angular.z = turn_sign * 0.7
+            twist.angular.z = turn_sign * float(self.get_parameter('search_turn_speed').value)
             if ball_detection is not None:
                 self.last_ball_seen_time = now
                 self.transition(self.ALIGN_TO_BALL)
