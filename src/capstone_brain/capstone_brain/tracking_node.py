@@ -29,19 +29,21 @@ class TrackingNode(Node):
         self.declare_parameter('status_topic', '/soccer/tracking_status')
         self.declare_parameter('gimbal_topic', '/manual_gimbal_cmd')
         self.declare_parameter('pan_center', 1500.0)
-        self.declare_parameter('tilt_center', 1500.0)
+        self.declare_parameter('tilt_center', 1650.0)
         self.declare_parameter('pan_min', 800.0)
         self.declare_parameter('pan_max', 2200.0)
-        self.declare_parameter('tilt_min', 1200.0)
+        self.declare_parameter('tilt_min', 1450.0)
         self.declare_parameter('tilt_max', 1900.0)
-        self.declare_parameter('scan_step', 6.0)
-        self.declare_parameter('center_tolerance_px', 40.0)
+        self.declare_parameter('scan_step', 4.0)
+        self.declare_parameter('center_tolerance_px', 55.0)
         self.declare_parameter('close_area_ball', 50000.0)
         self.declare_parameter('stale_timeout_sec', 1.0)
         self.declare_parameter('hold_last_target_timeout_sec', 1.8)
-        self.declare_parameter('pan_output_limit', 35.0)
-        self.declare_parameter('tilt_output_limit', 30.0)
-        self.declare_parameter('tracking_deadband_px', 12.0)
+        self.declare_parameter('pan_output_limit', 10.0)
+        self.declare_parameter('tilt_output_limit', 6.0)
+        self.declare_parameter('tracking_deadband_px', 35.0)
+        self.declare_parameter('tilt_track_enabled', False)
+        self.declare_parameter('pan_track_step', 3.0)
 
         self.target_class = 'ball'
         self.servo_x = float(self.get_parameter('pan_center').value)
@@ -49,8 +51,8 @@ class TrackingNode(Node):
         self.scan_direction = 1.0
         self.detections = {}
 
-        self.pan_pid = PIDController(kp=0.25, ki=0.05, kd=0.009)
-        self.tilt_pid = PIDController(kp=0.25, ki=0.05, kd=0.009)
+        self.pan_pid = PIDController(kp=0.08, ki=0.0, kd=0.003)
+        self.tilt_pid = PIDController(kp=0.05, ki=0.0, kd=0.002)
 
         self.gimbal_pub = self.create_publisher(Point, self.get_parameter('gimbal_topic').value, 10)
         self.status_pub = self.create_publisher(TrackingStatus, self.get_parameter('status_topic').value, 10)
@@ -167,25 +169,13 @@ class TrackingNode(Node):
         error_y = target_center_y - detection.center_y
 
         deadband = float(self.get_parameter('tracking_deadband_px').value)
-        if abs(error_x) <= deadband:
-            pan_output = 0.0
-            self.pan_pid.reset()
-        else:
-            pan_output = self.pan_pid.compute(setpoint=target_center_x, measured_value=detection.center_x)
+        pan_step = float(self.get_parameter('pan_track_step').value)
+        if error_x > deadband:
+            self.servo_x = max(float(self.get_parameter('pan_min').value), self.servo_x + pan_step)
+        elif error_x < -deadband:
+            self.servo_x = min(float(self.get_parameter('pan_max').value), self.servo_x - pan_step)
 
-        if abs(error_y) <= deadband:
-            tilt_output = 0.0
-            self.tilt_pid.reset()
-        else:
-            tilt_output = self.tilt_pid.compute(setpoint=target_center_y, measured_value=detection.center_y)
-
-        pan_limit = float(self.get_parameter('pan_output_limit').value)
-        tilt_limit = float(self.get_parameter('tilt_output_limit').value)
-        pan_output = max(-pan_limit, min(pan_limit, pan_output))
-        tilt_output = max(-tilt_limit, min(tilt_limit, tilt_output))
-
-        self.servo_x = max(float(self.get_parameter('pan_min').value), min(float(self.get_parameter('pan_max').value), self.servo_x + pan_output))
-        self.servo_y = max(float(self.get_parameter('tilt_min').value), min(float(self.get_parameter('tilt_max').value), self.servo_y - tilt_output))
+        self.servo_y = float(self.get_parameter('tilt_center').value)
         self.publish_gimbal(self.servo_x, self.servo_y)
 
         center_tolerance = float(self.get_parameter('center_tolerance_px').value)
