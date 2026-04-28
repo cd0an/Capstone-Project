@@ -42,6 +42,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('rgb_topic', '/manual_rgb_cmd')
         self.declare_parameter('forward_sign', 1.0)
         self.declare_parameter('turn_sign', 1.0)
+        self.declare_parameter('linear_speed_scale', 0.55)
+        self.declare_parameter('angular_speed_scale', 0.45)
+        self.declare_parameter('max_linear_step', 0.05)
+        self.declare_parameter('max_angular_step', 0.12)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('search_turn_speed', 0.8)
         self.declare_parameter('max_turn_speed', 3.0)
@@ -52,27 +56,27 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_lost_timeout_sec', 1.2)
         self.declare_parameter('goal_lost_timeout_sec', 1.0)
         self.declare_parameter('ball_memory_timeout_sec', 2.2)
-        self.declare_parameter('lost_ball_forward_speed', 0.22)
-        self.declare_parameter('lost_ball_turn_gain', 0.02)
-        self.declare_parameter('ball_align_turn_gain', 0.02)
-        self.declare_parameter('ball_chase_pan_gain', 0.004)
-        self.declare_parameter('ball_chase_image_gain', 0.0025)
+        self.declare_parameter('lost_ball_forward_speed', 0.18)
+        self.declare_parameter('lost_ball_turn_gain', 0.015)
+        self.declare_parameter('ball_align_turn_gain', 0.015)
+        self.declare_parameter('ball_chase_pan_gain', 0.003)
+        self.declare_parameter('ball_chase_image_gain', 0.002)
         self.declare_parameter('ball_chase_close_turn_scale', 0.35)
-        self.declare_parameter('goal_align_turn_gain', 0.02)
-        self.declare_parameter('goal_drive_speed', 0.35)
+        self.declare_parameter('goal_align_turn_gain', 0.015)
+        self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
         self.declare_parameter('ball_align_pan_tolerance', 50.0)
         self.declare_parameter('ball_align_forward_pan_threshold', 140.0)
-        self.declare_parameter('ball_align_forward_speed', 0.18)
+        self.declare_parameter('ball_align_forward_speed', 0.14)
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
-        self.declare_parameter('min_align_turn_speed', 0.4)
-        self.declare_parameter('min_chase_turn_speed', 0.2)
+        self.declare_parameter('min_align_turn_speed', 0.3)
+        self.declare_parameter('min_chase_turn_speed', 0.15)
         self.declare_parameter('ball_chase_drive_threshold_px', 170.0)
         self.declare_parameter('ball_chase_hard_turn_threshold_px', 250.0)
-        self.declare_parameter('ball_chase_base_speed', 0.35)
-        self.declare_parameter('ball_chase_max_turn_speed', 1.2)
-        self.declare_parameter('ball_chase_max_speed', 0.6)
+        self.declare_parameter('ball_chase_base_speed', 0.22)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.8)
+        self.declare_parameter('ball_chase_max_speed', 0.4)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -85,6 +89,8 @@ class SoccerFSMNode(Node):
         self.last_ball_area = 0.0
         self.last_ball_pan_error = 0.0
         self.last_goal_pan_error = 0.0
+        self.last_linear_x = 0.0
+        self.last_angular_z = 0.0
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -172,6 +178,14 @@ class SoccerFSMNode(Node):
     def proportional(self, error, gain, limit):
         value = error * gain
         return max(-limit, min(limit, value))
+
+    def limit_rate(self, target, previous, step_limit):
+        delta = target - previous
+        if delta > step_limit:
+            return previous + step_limit
+        if delta < -step_limit:
+            return previous - step_limit
+        return target
 
     def biased_turn(self, error, gain, limit, min_turn):
         turn = self.proportional(error, gain, limit)
@@ -347,6 +361,22 @@ class SoccerFSMNode(Node):
             if state_elapsed >= float(self.get_parameter('recover_duration_sec').value):
                 self.transition(self.SEARCH_BALL)
 
+        # Apply a global test-speed scale first, then rate-limit the command so
+        # perception is not forced to keep up with abrupt motion changes.
+        scaled_linear_x = twist.linear.x * float(self.get_parameter('linear_speed_scale').value)
+        scaled_angular_z = twist.angular.z * float(self.get_parameter('angular_speed_scale').value)
+        twist.linear.x = self.limit_rate(
+            scaled_linear_x,
+            self.last_linear_x,
+            float(self.get_parameter('max_linear_step').value),
+        )
+        twist.angular.z = self.limit_rate(
+            scaled_angular_z,
+            self.last_angular_z,
+            float(self.get_parameter('max_angular_step').value),
+        )
+        self.last_linear_x = twist.linear.x
+        self.last_angular_z = twist.angular.z
         self.cmd_pub.publish(twist)
 
 
