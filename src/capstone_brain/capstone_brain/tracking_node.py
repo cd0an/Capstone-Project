@@ -38,6 +38,7 @@ class TrackingNode(Node):
         self.declare_parameter('center_tolerance_px', 40.0)
         self.declare_parameter('close_area_ball', 50000.0)
         self.declare_parameter('stale_timeout_sec', 1.0)
+        self.declare_parameter('hold_last_target_timeout_sec', 1.8)
 
         self.target_class = 'ball'
         self.servo_x = float(self.get_parameter('pan_center').value)
@@ -80,11 +81,12 @@ class TrackingNode(Node):
     def current_detection(self):
         detection = self.detections.get(self.target_class)
         if detection is None:
-            return None, True
+            return None, True, None
 
         now = self.get_clock().now().nanoseconds / 1e9
-        stale = (now - detection.received_time) > float(self.get_parameter('stale_timeout_sec').value)
-        return detection, stale
+        age = now - detection.received_time
+        stale = age > float(self.get_parameter('stale_timeout_sec').value)
+        return detection, stale, age
 
     def publish_gimbal(self, pan_value, tilt_value):
         msg = Point()
@@ -93,13 +95,50 @@ class TrackingNode(Node):
         self.gimbal_pub.publish(msg)
 
     def control_loop(self):
-        detection, stale = self.current_detection()
+        detection, stale, age = self.current_detection()
         status = TrackingStatus()
         status.stamp = self.get_clock().now().to_msg()
         status.target_class = self.target_class
         status.stale = stale
 
-        if detection is None or stale:
+        if detection is None:
+            pan_min = float(self.get_parameter('pan_min').value)
+            pan_max = float(self.get_parameter('pan_max').value)
+            tilt_center = float(self.get_parameter('tilt_center').value)
+            scan_step = float(self.get_parameter('scan_step').value)
+
+            self.servo_x += self.scan_direction * scan_step
+            if self.servo_x >= pan_max:
+                self.servo_x = pan_max
+                self.scan_direction = -1.0
+            elif self.servo_x <= pan_min:
+                self.servo_x = pan_min
+                self.scan_direction = 1.0
+
+            self.servo_y = tilt_center
+            self.publish_gimbal(self.servo_x, self.servo_y)
+            status.visible = False
+            status.centered = False
+            status.in_range = False
+            self.status_pub.publish(status)
+            return
+
+        hold_timeout = float(self.get_parameter('hold_last_target_timeout_sec').value)
+        if stale and age is not None and age <= hold_timeout:
+            status.visible = False
+            status.centered = False
+            status.in_range = False
+            status.error_x = float((detection.frame_width / 2.0) - detection.center_x)
+            status.error_y = float((detection.frame_height / 2.0) - detection.center_y)
+            status.area = float(detection.area)
+            status.confidence = float(detection.confidence)
+            status.frame_width = int(detection.frame_width)
+            status.frame_height = int(detection.frame_height)
+            self.publish_gimbal(self.servo_x, self.servo_y)
+            self.status_pub.publish(status)
+            return
+
+        if stale:
             pan_min = float(self.get_parameter('pan_min').value)
             pan_max = float(self.get_parameter('pan_max').value)
             tilt_center = float(self.get_parameter('tilt_center').value)

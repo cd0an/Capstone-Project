@@ -48,6 +48,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_search_timeout_sec', 4.0)
         self.declare_parameter('ball_lost_timeout_sec', 1.0)
         self.declare_parameter('goal_lost_timeout_sec', 1.0)
+        self.declare_parameter('ball_memory_timeout_sec', 1.8)
+        self.declare_parameter('lost_ball_forward_speed', 0.08)
+        self.declare_parameter('lost_ball_turn_gain', 0.0035)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -56,6 +59,8 @@ class SoccerFSMNode(Node):
         self.track_target = 'ball'
         self.last_ball_seen_time = self.now_seconds()
         self.last_goal_seen_time = self.now_seconds()
+        self.last_ball_error_x = 0.0
+        self.last_ball_area = 0.0
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -88,6 +93,8 @@ class SoccerFSMNode(Node):
         now = self.now_seconds()
         if msg.target_class == 'ball' and msg.visible and not msg.stale:
             self.last_ball_seen_time = now
+            self.last_ball_error_x = float(msg.error_x)
+            self.last_ball_area = float(msg.area)
         if msg.target_class == 'goal' and msg.visible and not msg.stale:
             self.last_goal_seen_time = now
 
@@ -148,26 +155,36 @@ class SoccerFSMNode(Node):
             if lost_ball:
                 self.transition(self.RECOVER)
             else:
-                twist.angular.z = self.proportional(self.latest_status.error_x, 0.003, float(self.get_parameter('max_turn_speed').value))
+                tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
+                twist.angular.z = self.proportional(tracking_error_x, 0.003, float(self.get_parameter('max_turn_speed').value))
                 if self.latest_status.centered:
                     self.transition(self.APPROACH_BALL)
 
         elif self.state == self.APPROACH_BALL:
             self.publish_target('ball')
             self.publish_rgb(0, 120, 255)
+            ball_memory_age = now - self.last_ball_seen_time
             lost_ball = (
                 self.latest_status.target_class != 'ball' or
-                (now - self.last_ball_seen_time) > float(self.get_parameter('ball_lost_timeout_sec').value)
+                ball_memory_age > float(self.get_parameter('ball_memory_timeout_sec').value)
             )
             if lost_ball:
                 self.transition(self.RECOVER)
             else:
-                twist.angular.z = self.proportional(self.latest_status.error_x, 0.003, float(self.get_parameter('max_turn_speed').value))
-                if abs(self.latest_status.error_x) < float(self.get_parameter('ball_center_tolerance_px').value):
-                    area_error = float(self.get_parameter('ball_area_target').value) - self.latest_status.area
+                tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
+                tracking_area = self.latest_status.area if self.latest_status.visible else self.last_ball_area
+                twist.angular.z = self.proportional(
+                    tracking_error_x,
+                    float(self.get_parameter('lost_ball_turn_gain').value),
+                    float(self.get_parameter('max_turn_speed').value),
+                )
+                if abs(tracking_error_x) < float(self.get_parameter('ball_center_tolerance_px').value):
+                    area_error = float(self.get_parameter('ball_area_target').value) - tracking_area
                     twist.linear.x = self.proportional(area_error, 0.00001, float(self.get_parameter('max_linear_speed').value))
                     if twist.linear.x < 0.0:
                         twist.linear.x = 0.0
+                elif not self.latest_status.visible:
+                    twist.linear.x = float(self.get_parameter('lost_ball_forward_speed').value)
                 if self.latest_status.in_range:
                     self.transition(self.SEARCH_GOAL)
 
