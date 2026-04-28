@@ -36,12 +36,13 @@ class SoccerFSMNode(Node):
         self.declare_parameter('track_topic', '/soccer/track_target')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('rgb_topic', '/manual_rgb_cmd')
-        self.declare_parameter('ball_center_tolerance_px', 80.0)
+        self.declare_parameter('ball_center_tolerance_px', 140.0)
         self.declare_parameter('goal_center_tolerance_px', 50.0)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('max_linear_speed', 0.22)
         self.declare_parameter('max_strafe_speed', 0.18)
         self.declare_parameter('max_turn_speed', 0.45)
+        self.declare_parameter('min_forward_speed', 0.06)
         self.declare_parameter('recover_duration_sec', 1.0)
         self.declare_parameter('kick_ready_hold_sec', 0.5)
         self.declare_parameter('kick_duration_sec', 0.45)
@@ -178,8 +179,10 @@ class SoccerFSMNode(Node):
                 )
                 if abs(tracking_error_x) < float(self.get_parameter('ball_center_tolerance_px').value):
                     area_error = float(self.get_parameter('ball_area_target').value) - tracking_area
-                    twist.linear.x = self.proportional(area_error, 0.00001, float(self.get_parameter('max_linear_speed').value))
-                    if twist.linear.x < 0.0:
+                    if area_error > 0.0:
+                        commanded_speed = self.proportional(area_error, 0.000012, float(self.get_parameter('max_linear_speed').value))
+                        twist.linear.x = max(float(self.get_parameter('min_forward_speed').value), commanded_speed)
+                    else:
                         twist.linear.x = 0.0
                 elif not self.latest_status.visible:
                     twist.linear.x = float(self.get_parameter('lost_ball_forward_speed').value)
