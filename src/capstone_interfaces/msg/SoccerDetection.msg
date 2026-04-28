@@ -1,0 +1,9 @@
+builtin_interfaces/Time stamp
+string class_name
+float32 center_x
+float32 center_y
+float32 area
+float32 confidence
+uint32 frame_width
+uint32 frame_height
+bool is_primary

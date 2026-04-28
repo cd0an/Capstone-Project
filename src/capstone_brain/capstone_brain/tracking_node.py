@@ -1,0 +1,160 @@
+from dataclasses import dataclass
+
+import rclpy
+from capstone_interfaces.msg import SoccerDetections, TrackingStatus
+from geometry_msgs.msg import Point
+from rclpy.node import Node
+from std_msgs.msg import String
+
+from .pid import PIDController
+
+
+@dataclass
+class DetectionSnapshot:
+    class_name: str
+    center_x: float
+    center_y: float
+    area: float
+    confidence: float
+    frame_width: int
+    frame_height: int
+    received_time: float
+
+
+class TrackingNode(Node):
+    def __init__(self):
+        super().__init__('tracking_node')
+        self.declare_parameter('detection_topic', '/soccer/detections')
+        self.declare_parameter('track_topic', '/soccer/track_target')
+        self.declare_parameter('status_topic', '/soccer/tracking_status')
+        self.declare_parameter('gimbal_topic', '/manual_gimbal_cmd')
+        self.declare_parameter('pan_center', 1500.0)
+        self.declare_parameter('tilt_center', 1500.0)
+        self.declare_parameter('pan_min', 800.0)
+        self.declare_parameter('pan_max', 2200.0)
+        self.declare_parameter('tilt_min', 1200.0)
+        self.declare_parameter('tilt_max', 1900.0)
+        self.declare_parameter('scan_step', 18.0)
+        self.declare_parameter('center_tolerance_px', 40.0)
+        self.declare_parameter('close_area_ball', 50000.0)
+        self.declare_parameter('stale_timeout_sec', 0.35)
+
+        self.target_class = 'ball'
+        self.servo_x = float(self.get_parameter('pan_center').value)
+        self.servo_y = float(self.get_parameter('tilt_center').value)
+        self.scan_direction = 1.0
+        self.detections = {}
+
+        self.pan_pid = PIDController(kp=0.25, ki=0.05, kd=0.009)
+        self.tilt_pid = PIDController(kp=0.25, ki=0.05, kd=0.009)
+
+        self.gimbal_pub = self.create_publisher(Point, self.get_parameter('gimbal_topic').value, 10)
+        self.status_pub = self.create_publisher(TrackingStatus, self.get_parameter('status_topic').value, 10)
+        self.create_subscription(SoccerDetections, self.get_parameter('detection_topic').value, self.detections_callback, 10)
+        self.create_subscription(String, self.get_parameter('track_topic').value, self.track_target_callback, 10)
+        self.timer = self.create_timer(0.05, self.control_loop)
+
+    def detections_callback(self, msg):
+        now = self.get_clock().now().nanoseconds / 1e9
+        updated = {}
+        for detection in msg.detections:
+            updated[detection.class_name] = DetectionSnapshot(
+                class_name=detection.class_name,
+                center_x=detection.center_x,
+                center_y=detection.center_y,
+                area=detection.area,
+                confidence=detection.confidence,
+                frame_width=detection.frame_width,
+                frame_height=detection.frame_height,
+                received_time=now,
+            )
+        self.detections = updated
+
+    def track_target_callback(self, msg):
+        requested = msg.data.strip()
+        if requested and requested != self.target_class:
+            self.target_class = requested
+            self.pan_pid.reset()
+            self.tilt_pid.reset()
+
+    def current_detection(self):
+        detection = self.detections.get(self.target_class)
+        if detection is None:
+            return None, True
+
+        now = self.get_clock().now().nanoseconds / 1e9
+        stale = (now - detection.received_time) > float(self.get_parameter('stale_timeout_sec').value)
+        return detection, stale
+
+    def publish_gimbal(self, pan_value, tilt_value):
+        msg = Point()
+        msg.x = float(pan_value)
+        msg.y = float(tilt_value)
+        self.gimbal_pub.publish(msg)
+
+    def control_loop(self):
+        detection, stale = self.current_detection()
+        status = TrackingStatus()
+        status.stamp = self.get_clock().now().to_msg()
+        status.target_class = self.target_class
+        status.stale = stale
+
+        if detection is None or stale:
+            pan_min = float(self.get_parameter('pan_min').value)
+            pan_max = float(self.get_parameter('pan_max').value)
+            tilt_center = float(self.get_parameter('tilt_center').value)
+            scan_step = float(self.get_parameter('scan_step').value)
+
+            self.servo_x += self.scan_direction * scan_step
+            if self.servo_x >= pan_max:
+                self.servo_x = pan_max
+                self.scan_direction = -1.0
+            elif self.servo_x <= pan_min:
+                self.servo_x = pan_min
+                self.scan_direction = 1.0
+
+            self.servo_y = tilt_center
+            self.publish_gimbal(self.servo_x, self.servo_y)
+            status.visible = False
+            status.centered = False
+            status.in_range = False
+            self.status_pub.publish(status)
+            return
+
+        target_center_x = detection.frame_width / 2.0
+        target_center_y = detection.frame_height / 2.0
+        error_x = target_center_x - detection.center_x
+        error_y = target_center_y - detection.center_y
+
+        pan_output = self.pan_pid.compute(setpoint=target_center_x, measured_value=detection.center_x)
+        tilt_output = self.tilt_pid.compute(setpoint=target_center_y, measured_value=detection.center_y)
+
+        self.servo_x = max(float(self.get_parameter('pan_min').value), min(float(self.get_parameter('pan_max').value), self.servo_x + pan_output))
+        self.servo_y = max(float(self.get_parameter('tilt_min').value), min(float(self.get_parameter('tilt_max').value), self.servo_y - tilt_output))
+        self.publish_gimbal(self.servo_x, self.servo_y)
+
+        center_tolerance = float(self.get_parameter('center_tolerance_px').value)
+        ball_close_area = float(self.get_parameter('close_area_ball').value)
+
+        status.visible = True
+        status.centered = abs(error_x) <= center_tolerance and abs(error_y) <= center_tolerance
+        status.in_range = self.target_class == 'ball' and detection.area >= ball_close_area
+        status.error_x = float(error_x)
+        status.error_y = float(error_y)
+        status.area = float(detection.area)
+        status.confidence = float(detection.confidence)
+        status.frame_width = int(detection.frame_width)
+        status.frame_height = int(detection.frame_height)
+        self.status_pub.publish(status)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = TrackingNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

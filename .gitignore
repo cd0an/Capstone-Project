@@ -4,3 +4,6 @@ Vision/RawDataset*
 __pycache__/
 venv311/
 Vision/turbopi_ncnn_model.zip
+build/
+install/
+log/
