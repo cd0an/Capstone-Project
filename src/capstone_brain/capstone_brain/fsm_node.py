@@ -46,6 +46,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('angular_speed_scale', 0.45)
         self.declare_parameter('max_linear_step', 0.05)
         self.declare_parameter('max_angular_step', 0.12)
+        self.declare_parameter('min_effective_linear_speed', 0.10)
+        self.declare_parameter('min_effective_turn_speed', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('search_turn_speed', 0.8)
         self.declare_parameter('max_turn_speed', 3.0)
@@ -66,8 +68,6 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
         self.declare_parameter('ball_align_pan_tolerance', 50.0)
-        self.declare_parameter('ball_align_forward_pan_threshold', 140.0)
-        self.declare_parameter('ball_align_forward_speed', 0.14)
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
@@ -234,8 +234,6 @@ class SoccerFSMNode(Node):
                     float(self.get_parameter('min_align_turn_speed').value),
                 )
                 twist.angular.z *= turn_sign
-                if abs(camera_angle_error) < float(self.get_parameter('ball_align_forward_pan_threshold').value):
-                    twist.linear.x = forward_sign * float(self.get_parameter('ball_align_forward_speed').value)
                 if (
                     abs(camera_angle_error) < float(self.get_parameter('ball_align_pan_tolerance').value) or
                     (state_elapsed >= float(self.get_parameter('ball_align_timeout_sec').value) and self.latest_status.visible)
@@ -365,6 +363,12 @@ class SoccerFSMNode(Node):
         # perception is not forced to keep up with abrupt motion changes.
         scaled_linear_x = twist.linear.x * float(self.get_parameter('linear_speed_scale').value)
         scaled_angular_z = twist.angular.z * float(self.get_parameter('angular_speed_scale').value)
+        min_linear = float(self.get_parameter('min_effective_linear_speed').value)
+        min_turn = float(self.get_parameter('min_effective_turn_speed').value)
+        if 0.0 < abs(scaled_linear_x) < min_linear:
+            scaled_linear_x = min_linear if scaled_linear_x > 0.0 else -min_linear
+        if 0.0 < abs(scaled_angular_z) < min_turn:
+            scaled_angular_z = min_turn if scaled_angular_z > 0.0 else -min_turn
         twist.linear.x = self.limit_rate(
             scaled_linear_x,
             self.last_linear_x,
