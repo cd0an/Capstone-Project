@@ -124,7 +124,7 @@ class TrackingNode(Node):
         status.target_class = self.target_class
         status.stale = stale
 
-        if self.mode == 'CHASE':
+        if self.mode in ('CHASE', 'HOLD'):
             if detection is not None:
                 target_center_x = detection.frame_width / 2.0
                 target_center_y = detection.frame_height / 2.0
@@ -141,7 +141,7 @@ class TrackingNode(Node):
                 status.visible = False
                 status.centered = False
                 status.in_range = False
-            self.recenter_gimbal()
+            self.publish_gimbal(self.servo_x, self.servo_y)
             self.status_pub.publish(status)
             return
 

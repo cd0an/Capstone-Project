@@ -177,7 +177,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.ALIGN_TO_BALL:
             self.publish_target('ball')
-            self.publish_mode('TRACK')
+            self.publish_mode('HOLD')
             self.publish_rgb(0, 0, 255)
             lost_ball = (
                 self.latest_status.target_class != 'ball' or
@@ -198,7 +198,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.APPROACH_BALL:
             self.publish_target('ball')
-            self.publish_mode('CHASE')
+            self.publish_mode('HOLD')
             self.publish_rgb(0, 120, 255)
             ball_memory_age = now - self.last_ball_seen_time
             lost_ball = (
@@ -250,7 +250,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.ALIGN_TO_GOAL:
             self.publish_target('goal')
-            self.publish_mode('TRACK')
+            self.publish_mode('HOLD')
             self.publish_rgb(255, 165, 0)
             lost_goal = (
                 self.latest_status.target_class != 'goal' or
