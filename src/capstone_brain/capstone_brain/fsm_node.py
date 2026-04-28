@@ -48,8 +48,14 @@ class SoccerFSMNode(Node):
         self.declare_parameter('max_angular_step', 0.12)
         self.declare_parameter('min_effective_linear_speed', 0.10)
         self.declare_parameter('min_effective_turn_speed', 0.10)
+        self.declare_parameter('linear_breakaway_speed', 0.26)
+        self.declare_parameter('linear_hold_speed', 0.18)
+        self.declare_parameter('angular_breakaway_speed', 2.63)
+        self.declare_parameter('angular_hold_speed', 1.20)
+        self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_turn_speed', 0.8)
+        self.declare_parameter('search_spin_on_sec', 0.08)
+        self.declare_parameter('search_spin_off_sec', 0.16)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 1.0)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -91,6 +97,8 @@ class SoccerFSMNode(Node):
         self.last_goal_pan_error = 0.0
         self.last_linear_x = 0.0
         self.last_angular_z = 0.0
+        self.linear_active_since = None
+        self.angular_active_since = None
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -187,6 +195,21 @@ class SoccerFSMNode(Node):
             return previous - step_limit
         return target
 
+    def enforce_axis_motion_profile(self, target, now, breakaway_speed, hold_speed, active_since_attr):
+        if abs(target) < 1e-6:
+            setattr(self, active_since_attr, None)
+            return 0.0
+
+        active_since = getattr(self, active_since_attr)
+        if active_since is None:
+            active_since = now
+            setattr(self, active_since_attr, active_since)
+
+        elapsed = now - active_since
+        floor = breakaway_speed if elapsed < float(self.get_parameter('motion_breakaway_duration_sec').value) else hold_speed
+        magnitude = max(abs(target), floor)
+        return magnitude if target > 0.0 else -magnitude
+
     def biased_turn(self, error, gain, limit, min_turn):
         turn = self.proportional(error, gain, limit)
         if abs(error) < 1.0:
@@ -208,8 +231,13 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('SEARCH')
             self.publish_rgb(255, 0, 0)
-            # Search is a slow body sweep while the tracker pans the camera.
-            twist.angular.z = turn_sign * float(self.get_parameter('search_turn_speed').value)
+            # Use a pulsed search spin so the robot breaks static friction without
+            # continuously rotating faster than the detector can tolerate.
+            search_on = float(self.get_parameter('search_spin_on_sec').value)
+            search_off = float(self.get_parameter('search_spin_off_sec').value)
+            search_cycle = search_on + search_off
+            if search_cycle > 0.0 and (state_elapsed % search_cycle) < search_on:
+                twist.angular.z = turn_sign
             if ball_detection is not None:
                 self.last_ball_seen_time = now
                 self.transition(self.ALIGN_TO_BALL)
@@ -378,6 +406,22 @@ class SoccerFSMNode(Node):
             scaled_angular_z,
             self.last_angular_z,
             float(self.get_parameter('max_angular_step').value),
+        )
+        # Final output shaping handles drivetrain breakaway friction separately
+        # from the smoother steady-state "hold" speed.
+        twist.linear.x = self.enforce_axis_motion_profile(
+            twist.linear.x,
+            now,
+            float(self.get_parameter('linear_breakaway_speed').value),
+            float(self.get_parameter('linear_hold_speed').value),
+            'linear_active_since',
+        )
+        twist.angular.z = self.enforce_axis_motion_profile(
+            twist.angular.z,
+            now,
+            float(self.get_parameter('angular_breakaway_speed').value),
+            float(self.get_parameter('angular_hold_speed').value),
+            'angular_active_since',
         )
         self.last_linear_x = twist.linear.x
         self.last_angular_z = twist.angular.z
