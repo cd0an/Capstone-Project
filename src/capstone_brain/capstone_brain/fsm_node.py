@@ -35,6 +35,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('detection_topic', '/soccer/detections')
         self.declare_parameter('status_topic', '/soccer/tracking_status')
         self.declare_parameter('track_topic', '/soccer/track_target')
+        self.declare_parameter('mode_topic', '/soccer/tracking_mode')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('rgb_topic', '/manual_rgb_cmd')
         self.declare_parameter('ball_center_tolerance_px', 140.0)
@@ -65,6 +66,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_chase_full_speed_tolerance_px', 90.0)
         self.declare_parameter('ball_chase_crawl_tolerance_px', 190.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.04)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.22)
+        self.declare_parameter('ball_chase_max_speed', 0.12)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -79,6 +82,7 @@ class SoccerFSMNode(Node):
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
         self.track_pub = self.create_publisher(String, self.get_parameter('track_topic').value, 10)
+        self.mode_pub = self.create_publisher(String, self.get_parameter('mode_topic').value, 10)
         self.create_subscription(SoccerDetections, self.get_parameter('detection_topic').value, self.detections_callback, 10)
         self.create_subscription(TrackingStatus, self.get_parameter('status_topic').value, self.status_callback, 10)
         self.timer = self.create_timer(0.05, self.control_loop)
@@ -131,6 +135,11 @@ class SoccerFSMNode(Node):
         msg.data = target_class
         self.track_pub.publish(msg)
 
+    def publish_mode(self, mode):
+        msg = String()
+        msg.data = mode
+        self.mode_pub.publish(msg)
+
     def publish_rgb(self, red, green, blue):
         msg = Point()
         msg.x = float(red)
@@ -159,6 +168,7 @@ class SoccerFSMNode(Node):
 
         if self.state == self.SEARCH_BALL:
             self.publish_target('ball')
+            self.publish_mode('SEARCH')
             self.publish_rgb(255, 0, 0)
             twist.angular.z = 0.35
             if ball_detection is not None:
@@ -167,6 +177,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.ALIGN_TO_BALL:
             self.publish_target('ball')
+            self.publish_mode('TRACK')
             self.publish_rgb(0, 0, 255)
             lost_ball = (
                 self.latest_status.target_class != 'ball' or
@@ -187,6 +198,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.APPROACH_BALL:
             self.publish_target('ball')
+            self.publish_mode('CHASE')
             self.publish_rgb(0, 120, 255)
             ball_memory_age = now - self.last_ball_seen_time
             lost_ball = (
@@ -198,18 +210,17 @@ class SoccerFSMNode(Node):
             else:
                 tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
                 tracking_area = self.latest_status.area if self.latest_status.visible else self.last_ball_area
-                twist.angular.z = self.biased_turn(
-                    tracking_error_x,
+                twist.angular.z = self.proportional(
+                    -tracking_error_x,
                     float(self.get_parameter('ball_chase_turn_gain').value),
-                    float(self.get_parameter('max_turn_speed').value),
-                    float(self.get_parameter('min_chase_turn_speed').value),
+                    float(self.get_parameter('ball_chase_max_turn_speed').value),
                 )
                 full_speed_tolerance = float(self.get_parameter('ball_chase_full_speed_tolerance_px').value)
                 crawl_tolerance = float(self.get_parameter('ball_chase_crawl_tolerance_px').value)
                 if abs(tracking_error_x) < full_speed_tolerance:
                     area_error = float(self.get_parameter('ball_area_target').value) - tracking_area
                     if area_error > 0.0:
-                        commanded_speed = self.proportional(area_error, 0.000012, float(self.get_parameter('max_linear_speed').value))
+                        commanded_speed = self.proportional(area_error, 0.000009, float(self.get_parameter('ball_chase_max_speed').value))
                         twist.linear.x = max(float(self.get_parameter('min_forward_speed').value), commanded_speed)
                     else:
                         twist.linear.x = 0.0
@@ -222,12 +233,14 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.BALL_POSSESSION:
             self.publish_target('ball')
+            self.publish_mode('HOLD')
             self.publish_rgb(0, 255, 0)
             if state_elapsed >= float(self.get_parameter('ball_possession_hold_sec').value):
                 self.transition(self.SEARCH_GOAL)
 
         elif self.state == self.SEARCH_GOAL:
             self.publish_target('goal')
+            self.publish_mode('SEARCH')
             self.publish_rgb(255, 255, 0)
             if goal_detection is not None and self.latest_status.target_class == 'goal' and self.latest_status.visible:
                 self.last_goal_seen_time = now
@@ -237,6 +250,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.ALIGN_TO_GOAL:
             self.publish_target('goal')
+            self.publish_mode('TRACK')
             self.publish_rgb(255, 165, 0)
             lost_goal = (
                 self.latest_status.target_class != 'goal' or
@@ -256,6 +270,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.DRIVE_TO_GOAL:
             self.publish_target('goal')
+            self.publish_mode('HOLD')
             self.publish_rgb(255, 255, 255)
             twist.linear.x = float(self.get_parameter('goal_drive_speed').value)
             if state_elapsed >= float(self.get_parameter('goal_drive_duration_sec').value):
@@ -263,6 +278,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.KICK:
             self.publish_target('goal')
+            self.publish_mode('HOLD')
             self.publish_rgb(0, 255, 255)
             if state_elapsed < float(self.get_parameter('kick_duration_sec').value):
                 twist.linear.x = 0.15
@@ -271,6 +287,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.RECOVER:
             self.publish_target('ball')
+            self.publish_mode('SEARCH')
             self.publish_rgb(120, 0, 120)
             if state_elapsed >= float(self.get_parameter('recover_duration_sec').value):
                 self.transition(self.SEARCH_BALL)

@@ -26,6 +26,7 @@ class TrackingNode(Node):
         super().__init__('tracking_node')
         self.declare_parameter('detection_topic', '/soccer/detections')
         self.declare_parameter('track_topic', '/soccer/track_target')
+        self.declare_parameter('mode_topic', '/soccer/tracking_mode')
         self.declare_parameter('status_topic', '/soccer/tracking_status')
         self.declare_parameter('gimbal_topic', '/manual_gimbal_cmd')
         self.declare_parameter('pan_center', 1500.0)
@@ -44,8 +45,10 @@ class TrackingNode(Node):
         self.declare_parameter('tracking_deadband_px', 35.0)
         self.declare_parameter('tilt_track_enabled', False)
         self.declare_parameter('pan_track_step', 3.0)
+        self.declare_parameter('recenter_step', 5.0)
 
         self.target_class = 'ball'
+        self.mode = 'SEARCH'
         self.servo_x = float(self.get_parameter('pan_center').value)
         self.servo_y = float(self.get_parameter('tilt_center').value)
         self.scan_direction = 1.0
@@ -58,6 +61,7 @@ class TrackingNode(Node):
         self.status_pub = self.create_publisher(TrackingStatus, self.get_parameter('status_topic').value, 10)
         self.create_subscription(SoccerDetections, self.get_parameter('detection_topic').value, self.detections_callback, 10)
         self.create_subscription(String, self.get_parameter('track_topic').value, self.track_target_callback, 10)
+        self.create_subscription(String, self.get_parameter('mode_topic').value, self.mode_callback, 10)
         self.timer = self.create_timer(0.05, self.control_loop)
 
     def detections_callback(self, msg):
@@ -81,6 +85,11 @@ class TrackingNode(Node):
             self.pan_pid.reset()
             self.tilt_pid.reset()
 
+    def mode_callback(self, msg):
+        requested = msg.data.strip().upper()
+        if requested:
+            self.mode = requested
+
     def current_detection(self):
         detection = self.detections.get(self.target_class)
         if detection is None:
@@ -97,12 +106,44 @@ class TrackingNode(Node):
         msg.y = float(tilt_value)
         self.gimbal_pub.publish(msg)
 
+    def recenter_gimbal(self):
+        pan_center = float(self.get_parameter('pan_center').value)
+        tilt_center = float(self.get_parameter('tilt_center').value)
+        recenter_step = float(self.get_parameter('recenter_step').value)
+        if self.servo_x < pan_center:
+            self.servo_x = min(pan_center, self.servo_x + recenter_step)
+        elif self.servo_x > pan_center:
+            self.servo_x = max(pan_center, self.servo_x - recenter_step)
+        self.servo_y = tilt_center
+        self.publish_gimbal(self.servo_x, self.servo_y)
+
     def control_loop(self):
         detection, stale, age = self.current_detection()
         status = TrackingStatus()
         status.stamp = self.get_clock().now().to_msg()
         status.target_class = self.target_class
         status.stale = stale
+
+        if self.mode == 'CHASE':
+            if detection is not None:
+                target_center_x = detection.frame_width / 2.0
+                target_center_y = detection.frame_height / 2.0
+                status.visible = not stale
+                status.centered = abs(target_center_x - detection.center_x) <= float(self.get_parameter('center_tolerance_px').value)
+                status.in_range = self.target_class == 'ball' and detection.area >= float(self.get_parameter('close_area_ball').value)
+                status.error_x = float(target_center_x - detection.center_x)
+                status.error_y = float(target_center_y - detection.center_y)
+                status.area = float(detection.area)
+                status.confidence = float(detection.confidence)
+                status.frame_width = int(detection.frame_width)
+                status.frame_height = int(detection.frame_height)
+            else:
+                status.visible = False
+                status.centered = False
+                status.in_range = False
+            self.recenter_gimbal()
+            self.status_pub.publish(status)
+            return
 
         if detection is None:
             pan_min = float(self.get_parameter('pan_min').value)
