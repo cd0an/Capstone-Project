@@ -147,7 +147,7 @@ class SoccerFSMNode(Node):
         return max(-limit, min(limit, value))
 
     def biased_turn(self, error, gain, limit, min_turn):
-        turn = self.proportional(-error, gain, limit)
+        turn = self.proportional(error, gain, limit)
         if abs(error) < 1.0:
             return 0.0
         if abs(turn) < min_turn:
