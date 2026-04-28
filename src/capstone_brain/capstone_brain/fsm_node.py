@@ -38,36 +38,31 @@ class SoccerFSMNode(Node):
         self.declare_parameter('mode_topic', '/soccer/tracking_mode')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('rgb_topic', '/manual_rgb_cmd')
-        self.declare_parameter('ball_center_tolerance_px', 140.0)
-        self.declare_parameter('goal_center_tolerance_px', 70.0)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('max_linear_speed', 0.22)
-        self.declare_parameter('max_strafe_speed', 0.18)
-        self.declare_parameter('max_turn_speed', 0.45)
-        self.declare_parameter('min_forward_speed', 0.06)
+        self.declare_parameter('max_turn_speed', 1.2)
         self.declare_parameter('recover_duration_sec', 1.0)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
         self.declare_parameter('kick_duration_sec', 0.45)
         self.declare_parameter('goal_search_timeout_sec', 5.0)
-        self.declare_parameter('ball_lost_timeout_sec', 1.0)
+        self.declare_parameter('ball_lost_timeout_sec', 1.2)
         self.declare_parameter('goal_lost_timeout_sec', 1.0)
-        self.declare_parameter('ball_memory_timeout_sec', 1.8)
-        self.declare_parameter('lost_ball_forward_speed', 0.08)
-        self.declare_parameter('lost_ball_turn_gain', 0.0035)
-        self.declare_parameter('ball_align_turn_gain', 0.006)
-        self.declare_parameter('ball_chase_turn_gain', 0.0045)
-        self.declare_parameter('goal_align_turn_gain', 0.005)
-        self.declare_parameter('goal_drive_speed', 0.10)
+        self.declare_parameter('ball_memory_timeout_sec', 2.2)
+        self.declare_parameter('lost_ball_forward_speed', 0.06)
+        self.declare_parameter('lost_ball_turn_gain', 0.01)
+        self.declare_parameter('ball_align_turn_gain', 0.012)
+        self.declare_parameter('ball_chase_turn_gain', 0.01)
+        self.declare_parameter('goal_align_turn_gain', 0.01)
+        self.declare_parameter('goal_drive_speed', 0.12)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
-        self.declare_parameter('ball_align_tolerance_px', 110.0)
-        self.declare_parameter('goal_align_tolerance_px', 90.0)
-        self.declare_parameter('min_align_turn_speed', 0.14)
-        self.declare_parameter('min_chase_turn_speed', 0.08)
-        self.declare_parameter('ball_chase_full_speed_tolerance_px', 90.0)
-        self.declare_parameter('ball_chase_crawl_tolerance_px', 190.0)
-        self.declare_parameter('ball_chase_crawl_speed', 0.04)
-        self.declare_parameter('ball_chase_max_turn_speed', 0.22)
-        self.declare_parameter('ball_chase_max_speed', 0.12)
+        self.declare_parameter('ball_align_tolerance_px', 90.0)
+        self.declare_parameter('goal_align_tolerance_px', 80.0)
+        self.declare_parameter('min_align_turn_speed', 0.22)
+        self.declare_parameter('min_chase_turn_speed', 0.18)
+        self.declare_parameter('ball_chase_drive_threshold_px', 170.0)
+        self.declare_parameter('ball_chase_hard_turn_threshold_px', 250.0)
+        self.declare_parameter('ball_chase_base_speed', 0.10)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.9)
+        self.declare_parameter('ball_chase_max_speed', 0.22)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -177,7 +172,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.ALIGN_TO_BALL:
             self.publish_target('ball')
-            self.publish_mode('HOLD')
+            self.publish_mode('TRACK')
             self.publish_rgb(0, 0, 255)
             lost_ball = (
                 self.latest_status.target_class != 'ball' or
@@ -198,7 +193,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.APPROACH_BALL:
             self.publish_target('ball')
-            self.publish_mode('HOLD')
+            self.publish_mode('CHASE')
             self.publish_rgb(0, 120, 255)
             ball_memory_age = now - self.last_ball_seen_time
             lost_ball = (
@@ -210,23 +205,29 @@ class SoccerFSMNode(Node):
             else:
                 tracking_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
                 tracking_area = self.latest_status.area if self.latest_status.visible else self.last_ball_area
-                twist.angular.z = self.proportional(
-                    -tracking_error_x,
-                    float(self.get_parameter('ball_chase_turn_gain').value),
-                    float(self.get_parameter('ball_chase_max_turn_speed').value),
-                )
-                full_speed_tolerance = float(self.get_parameter('ball_chase_full_speed_tolerance_px').value)
-                crawl_tolerance = float(self.get_parameter('ball_chase_crawl_tolerance_px').value)
-                if abs(tracking_error_x) < full_speed_tolerance:
-                    area_error = float(self.get_parameter('ball_area_target').value) - tracking_area
-                    if area_error > 0.0:
-                        commanded_speed = self.proportional(area_error, 0.000009, float(self.get_parameter('ball_chase_max_speed').value))
-                        twist.linear.x = max(float(self.get_parameter('min_forward_speed').value), commanded_speed)
-                    else:
+                abs_error_x = abs(tracking_error_x)
+                if self.latest_status.visible:
+                    twist.angular.z = self.biased_turn(
+                        tracking_error_x,
+                        float(self.get_parameter('ball_chase_turn_gain').value),
+                        float(self.get_parameter('ball_chase_max_turn_speed').value),
+                        float(self.get_parameter('min_chase_turn_speed').value),
+                    )
+                    if abs_error_x >= float(self.get_parameter('ball_chase_hard_turn_threshold_px').value):
                         twist.linear.x = 0.0
-                elif abs(tracking_error_x) < crawl_tolerance:
-                    twist.linear.x = float(self.get_parameter('ball_chase_crawl_speed').value)
-                elif not self.latest_status.visible:
+                    else:
+                        area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
+                        commanded_speed = self.proportional(area_error, 0.00001, float(self.get_parameter('ball_chase_max_speed').value))
+                        twist.linear.x = max(float(self.get_parameter('ball_chase_base_speed').value), commanded_speed)
+                        if abs_error_x >= float(self.get_parameter('ball_chase_drive_threshold_px').value):
+                            twist.linear.x = min(twist.linear.x, float(self.get_parameter('lost_ball_forward_speed').value))
+                else:
+                    twist.angular.z = self.biased_turn(
+                        tracking_error_x,
+                        float(self.get_parameter('lost_ball_turn_gain').value),
+                        float(self.get_parameter('ball_chase_max_turn_speed').value),
+                        float(self.get_parameter('min_chase_turn_speed').value),
+                    )
                     twist.linear.x = float(self.get_parameter('lost_ball_forward_speed').value)
                 if self.latest_status.in_range:
                     self.transition(self.BALL_POSSESSION)
@@ -250,7 +251,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.ALIGN_TO_GOAL:
             self.publish_target('goal')
-            self.publish_mode('HOLD')
+            self.publish_mode('TRACK')
             self.publish_rgb(255, 165, 0)
             lost_goal = (
                 self.latest_status.target_class != 'goal' or

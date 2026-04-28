@@ -40,12 +40,8 @@ class TrackingNode(Node):
         self.declare_parameter('close_area_ball', 50000.0)
         self.declare_parameter('stale_timeout_sec', 1.0)
         self.declare_parameter('hold_last_target_timeout_sec', 1.8)
-        self.declare_parameter('pan_output_limit', 10.0)
-        self.declare_parameter('tilt_output_limit', 6.0)
         self.declare_parameter('tracking_deadband_px', 35.0)
-        self.declare_parameter('tilt_track_enabled', False)
         self.declare_parameter('pan_track_step', 3.0)
-        self.declare_parameter('recenter_step', 5.0)
 
         self.target_class = 'ball'
         self.mode = 'SEARCH'
@@ -53,9 +49,6 @@ class TrackingNode(Node):
         self.servo_y = float(self.get_parameter('tilt_center').value)
         self.scan_direction = 1.0
         self.detections = {}
-
-        self.pan_pid = PIDController(kp=0.08, ki=0.0, kd=0.003)
-        self.tilt_pid = PIDController(kp=0.05, ki=0.0, kd=0.002)
 
         self.gimbal_pub = self.create_publisher(Point, self.get_parameter('gimbal_topic').value, 10)
         self.status_pub = self.create_publisher(TrackingStatus, self.get_parameter('status_topic').value, 10)
@@ -82,8 +75,6 @@ class TrackingNode(Node):
         requested = msg.data.strip()
         if requested and requested != self.target_class:
             self.target_class = requested
-            self.pan_pid.reset()
-            self.tilt_pid.reset()
 
     def mode_callback(self, msg):
         requested = msg.data.strip().upper()
@@ -106,17 +97,6 @@ class TrackingNode(Node):
         msg.y = float(tilt_value)
         self.gimbal_pub.publish(msg)
 
-    def recenter_gimbal(self):
-        pan_center = float(self.get_parameter('pan_center').value)
-        tilt_center = float(self.get_parameter('tilt_center').value)
-        recenter_step = float(self.get_parameter('recenter_step').value)
-        if self.servo_x < pan_center:
-            self.servo_x = min(pan_center, self.servo_x + recenter_step)
-        elif self.servo_x > pan_center:
-            self.servo_x = max(pan_center, self.servo_x - recenter_step)
-        self.servo_y = tilt_center
-        self.publish_gimbal(self.servo_x, self.servo_y)
-
     def control_loop(self):
         detection, stale, age = self.current_detection()
         status = TrackingStatus()
@@ -124,7 +104,7 @@ class TrackingNode(Node):
         status.target_class = self.target_class
         status.stale = stale
 
-        if self.mode in ('CHASE', 'HOLD'):
+        if self.mode == 'HOLD':
             if detection is not None:
                 target_center_x = detection.frame_width / 2.0
                 target_center_y = detection.frame_height / 2.0
@@ -141,6 +121,28 @@ class TrackingNode(Node):
                 status.visible = False
                 status.centered = False
                 status.in_range = False
+            self.publish_gimbal(self.servo_x, self.servo_y)
+            self.status_pub.publish(status)
+            return
+
+        if self.mode == 'CHASE':
+            if detection is not None:
+                target_center_x = detection.frame_width / 2.0
+                target_center_y = detection.frame_height / 2.0
+                status.visible = not stale
+                status.centered = abs(target_center_x - detection.center_x) <= float(self.get_parameter('center_tolerance_px').value)
+                status.in_range = self.target_class == 'ball' and detection.area >= float(self.get_parameter('close_area_ball').value)
+                status.error_x = float(target_center_x - detection.center_x)
+                status.error_y = float(target_center_y - detection.center_y)
+                status.area = float(detection.area)
+                status.confidence = float(detection.confidence)
+                status.frame_width = int(detection.frame_width)
+                status.frame_height = int(detection.frame_height)
+            else:
+                status.visible = False
+                status.centered = False
+                status.in_range = False
+            self.servo_y = float(self.get_parameter('tilt_center').value)
             self.publish_gimbal(self.servo_x, self.servo_y)
             self.status_pub.publish(status)
             return
