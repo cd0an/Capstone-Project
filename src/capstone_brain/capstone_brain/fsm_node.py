@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 
 import rclpy
 from capstone_interfaces.msg import SoccerDetections, TrackingStatus
@@ -41,7 +42,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('forward_sign', 1.0)
         self.declare_parameter('turn_sign', 1.0)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_turn_speed', 2.5)
+        self.declare_parameter('search_turn_speed', 0.5)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 1.0)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -149,6 +150,16 @@ class SoccerFSMNode(Node):
         msg.y = float(green)
         msg.z = float(blue)
         self.rgb_pub.publish(msg)
+
+    def stop_outputs(self):
+        # Publish a short stop burst so the hardware side is more likely to
+        # receive a zero command before the ROS graph tears down.
+        zero_twist = Twist()
+        leds_off = Point()
+        for _ in range(3):
+            self.cmd_pub.publish(zero_twist)
+            self.rgb_pub.publish(leds_off)
+            time.sleep(0.05)
 
     def proportional(self, error, gain, limit):
         value = error * gain
@@ -330,7 +341,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        node.cmd_pub.publish(Twist())
+        node.stop_outputs()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

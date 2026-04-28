@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 
 import rclpy
 from capstone_interfaces.msg import SoccerDetections, TrackingStatus
@@ -94,6 +95,13 @@ class TrackingNode(Node):
         msg.x = float(pan_value)
         msg.y = float(tilt_value)
         self.gimbal_pub.publish(msg)
+
+    def stop_outputs(self):
+        pan_center = float(self.get_parameter('pan_center').value)
+        tilt_center = float(self.get_parameter('tilt_center').value)
+        for _ in range(3):
+            self.publish_gimbal(pan_center, tilt_center)
+            time.sleep(0.05)
 
     def current_pan_error(self):
         pan_center = float(self.get_parameter('pan_center').value)
@@ -256,6 +264,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node.stop_outputs()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
