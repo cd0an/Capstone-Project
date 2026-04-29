@@ -52,6 +52,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('linear_hold_speed', 0.18)
         self.declare_parameter('angular_breakaway_speed', 2.63)
         self.declare_parameter('angular_hold_speed', 1.20)
+        self.declare_parameter('chase_angular_hold_speed', 0.25)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('search_spin_on_sec', 0.02)
@@ -145,6 +146,10 @@ class SoccerFSMNode(Node):
             self.get_logger().info(f'Transition: {self.state} -> {new_state}')
             self.state = new_state
             self.state_enter_time = self.now_seconds()
+            self.angular_active_since = None
+            self.linear_active_since = None
+            self.last_linear_x = 0.0
+            self.last_angular_z = 0.0
 
     def publish_target(self, target_class):
         if target_class != self.track_target:
@@ -396,13 +401,18 @@ class SoccerFSMNode(Node):
                 self.last_angular_z,
                 float(self.get_parameter('max_angular_step').value),
             )
-            twist.angular.z = self.enforce_axis_motion_profile(
-                ramped_angular_z,
-                now,
-                float(self.get_parameter('angular_breakaway_speed').value),
-                float(self.get_parameter('angular_hold_speed').value),
-                'angular_active_since',
-            )
+            if self.state == self.SEARCH_BALL:
+                twist.angular.z = self.enforce_axis_motion_profile(
+                    ramped_angular_z,
+                    now,
+                    float(self.get_parameter('angular_breakaway_speed').value),
+                    float(self.get_parameter('angular_hold_speed').value),
+                    'angular_active_since',
+                )
+            else:
+                hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
+                magnitude = max(abs(ramped_angular_z), hold_floor)
+                twist.angular.z = magnitude if ramped_angular_z > 0.0 else -magnitude
         self.last_linear_x = twist.linear.x
         self.last_angular_z = twist.angular.z
         self.cmd_pub.publish(twist)
