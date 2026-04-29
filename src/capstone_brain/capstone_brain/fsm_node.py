@@ -54,22 +54,19 @@ class SoccerFSMNode(Node):
         self.declare_parameter('angular_hold_speed', 1.20)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_spin_on_sec', 0.08)
-        self.declare_parameter('search_spin_off_sec', 0.16)
+        self.declare_parameter('search_spin_on_sec', 0.05)
+        self.declare_parameter('search_spin_off_sec', 0.30)
         self.declare_parameter('max_turn_speed', 3.0)
-        self.declare_parameter('recover_duration_sec', 1.0)
+        self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
         self.declare_parameter('kick_duration_sec', 0.45)
         self.declare_parameter('goal_search_timeout_sec', 5.0)
         self.declare_parameter('ball_lost_timeout_sec', 1.2)
         self.declare_parameter('goal_lost_timeout_sec', 1.0)
-        self.declare_parameter('ball_memory_timeout_sec', 2.2)
-        self.declare_parameter('lost_ball_forward_speed', 0.18)
-        self.declare_parameter('lost_ball_turn_gain', 0.015)
+        self.declare_parameter('lost_ball_forward_speed', 0.0)
+        self.declare_parameter('lost_ball_turn_gain', 0.0)
         self.declare_parameter('ball_align_turn_gain', 0.015)
-        self.declare_parameter('ball_chase_pan_gain', 0.003)
-        self.declare_parameter('ball_chase_image_gain', 0.002)
-        self.declare_parameter('ball_chase_close_turn_scale', 0.35)
+        self.declare_parameter('ball_chase_turn_gain', 0.0045)
         self.declare_parameter('goal_align_turn_gain', 0.015)
         self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
@@ -77,12 +74,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
-        self.declare_parameter('min_chase_turn_speed', 0.15)
-        self.declare_parameter('ball_chase_drive_threshold_px', 170.0)
-        self.declare_parameter('ball_chase_hard_turn_threshold_px', 250.0)
-        self.declare_parameter('ball_chase_base_speed', 0.22)
-        self.declare_parameter('ball_chase_max_turn_speed', 0.8)
-        self.declare_parameter('ball_chase_max_speed', 0.4)
+        self.declare_parameter('min_chase_turn_speed', 0.12)
+        self.declare_parameter('ball_chase_center_threshold_px', 100.0)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.35)
+        self.declare_parameter('ball_chase_max_speed', 0.20)
 
         self.state = self.SEARCH_BALL
         self.state_enter_time = self.now_seconds()
@@ -240,7 +235,7 @@ class SoccerFSMNode(Node):
                 twist.angular.z = turn_sign
             if ball_detection is not None:
                 self.last_ball_seen_time = now
-                self.transition(self.ALIGN_TO_BALL)
+                self.transition(self.APPROACH_BALL)
 
         elif self.state == self.ALIGN_TO_BALL:
             self.publish_target('ball')
@@ -270,57 +265,34 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.APPROACH_BALL:
             self.publish_target('ball')
-            self.publish_mode('CHASE')
+            self.publish_mode('TRACK')
             self.publish_rgb(0, 120, 255)
-            ball_memory_age = now - self.last_ball_seen_time
             lost_ball = (
                 self.latest_status.target_class != 'ball' or
-                ball_memory_age > float(self.get_parameter('ball_memory_timeout_sec').value)
+                not self.latest_status.visible or
+                self.latest_status.stale
             )
             if lost_ball:
                 self.transition(self.RECOVER)
             else:
-                # Chase uses both chassis-vs-gimbal alignment and residual image error.
-                pan_error = self.latest_status.pan_error if self.latest_status.visible else self.last_ball_pan_error
-                image_error_x = self.latest_status.error_x if self.latest_status.visible else self.last_ball_error_x
-                tracking_area = self.latest_status.area if self.latest_status.visible else self.last_ball_area
-                combined_turn_error = (
-                    (pan_error * float(self.get_parameter('ball_chase_pan_gain').value)) +
-                    (image_error_x * float(self.get_parameter('ball_chase_image_gain').value))
+                error_x = self.latest_status.error_x
+                tracking_area = self.latest_status.area
+                twist.angular.z = self.biased_turn(
+                    error_x,
+                    float(self.get_parameter('ball_chase_turn_gain').value),
+                    float(self.get_parameter('ball_chase_max_turn_speed').value),
+                    float(self.get_parameter('min_chase_turn_speed').value),
                 )
-                abs_pan_error = abs(pan_error)
-                if self.latest_status.visible:
-                    twist.angular.z = self.biased_turn(
-                        combined_turn_error,
-                        1.0,
-                        float(self.get_parameter('ball_chase_max_turn_speed').value),
-                        float(self.get_parameter('min_chase_turn_speed').value),
+                twist.angular.z *= turn_sign
+                if abs(error_x) < float(self.get_parameter('ball_chase_center_threshold_px').value):
+                    area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
+                    twist.linear.x = forward_sign * self.proportional(
+                        area_error,
+                        0.000006,
+                        float(self.get_parameter('ball_chase_max_speed').value),
                     )
-                    target_area = float(self.get_parameter('ball_area_target').value)
-                    proximity = min(1.0, tracking_area / target_area) if target_area > 0.0 else 0.0
-                    close_turn_scale = float(self.get_parameter('ball_chase_close_turn_scale').value)
-                    twist.angular.z *= max(close_turn_scale, 1.0 - (0.65 * proximity))
-                    twist.angular.z *= turn_sign
-                    if abs_pan_error >= float(self.get_parameter('ball_chase_hard_turn_threshold_px').value):
-                        twist.linear.x = 0.0
-                    else:
-                        area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
-                        commanded_speed = self.proportional(area_error, 0.00001, float(self.get_parameter('ball_chase_max_speed').value))
-                        twist.linear.x = max(float(self.get_parameter('ball_chase_base_speed').value), commanded_speed)
-                        if abs_pan_error >= float(self.get_parameter('ball_chase_drive_threshold_px').value):
-                            twist.linear.x = min(twist.linear.x, float(self.get_parameter('lost_ball_forward_speed').value))
                 else:
-                    # Brief detector dropouts should keep the robot committed to the
-                    # last known ball direction instead of forcing an immediate search.
-                    twist.angular.z = self.biased_turn(
-                        pan_error,
-                        float(self.get_parameter('lost_ball_turn_gain').value),
-                        float(self.get_parameter('ball_chase_max_turn_speed').value),
-                        float(self.get_parameter('min_chase_turn_speed').value),
-                    )
-                    twist.angular.z *= turn_sign
-                    twist.linear.x = float(self.get_parameter('lost_ball_forward_speed').value)
-                twist.linear.x *= forward_sign
+                    twist.linear.x = 0.0
                 if self.latest_status.in_range:
                     self.transition(self.BALL_POSSESSION)
 
@@ -382,7 +354,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.RECOVER:
             self.publish_target('ball')
-            self.publish_mode('SEARCH')
+            self.publish_mode('HOLD')
             self.publish_rgb(120, 0, 120)
             if state_elapsed >= float(self.get_parameter('recover_duration_sec').value):
                 self.transition(self.SEARCH_BALL)
