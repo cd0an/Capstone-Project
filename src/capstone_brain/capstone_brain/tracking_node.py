@@ -30,7 +30,7 @@ class TrackingNode(Node):
         self.declare_parameter('status_topic', '/soccer/tracking_status')
         self.declare_parameter('gimbal_topic', '/manual_gimbal_cmd')
         self.declare_parameter('pan_center', 1500.0)
-        self.declare_parameter('tilt_center', 1650.0)
+        self.declare_parameter('tilt_center', 1750.0)
         self.declare_parameter('lock_gimbal', True)
         self.declare_parameter('pan_min', 800.0)
         self.declare_parameter('pan_max', 2200.0)

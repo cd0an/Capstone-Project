@@ -24,9 +24,13 @@ class DetectorNode(Node):
         self.declare_parameter('imgsz', 512)
         self.declare_parameter('confidence_threshold', 0.5)
         self.declare_parameter('publish_topic', '/soccer/detections')
+        self.declare_parameter('show_window', True)
+        self.declare_parameter('window_name', 'TurboPi Live Vision')
 
         model_root = Path(get_package_share_directory('capstone_brain')) / 'models' / 'turbopi_ncnn_model'
         self.model = YOLO(str(model_root), task='segment')
+        self.show_window = bool(self.get_parameter('show_window').value)
+        self.window_name = str(self.get_parameter('window_name').value)
         self.publisher = self.create_publisher(
             SoccerDetections,
             self.get_parameter('publish_topic').value,
@@ -58,7 +62,19 @@ class DetectorNode(Node):
             verbose=False,
         )
 
+        annotated_frame = frame.copy()
+        if results:
+            annotated_frame = results[0].plot()
         frame_height, frame_width = frame.shape[:2]
+        cv2.drawMarker(
+            annotated_frame,
+            (frame_width // 2, frame_height // 2),
+            (0, 255, 255),
+            markerType=cv2.MARKER_CROSS,
+            markerSize=18,
+            thickness=2,
+        )
+
         largest_by_class = {}
         if results and len(results[0].boxes) > 0:
             # Keep only the largest instance per class so downstream control does not
@@ -101,10 +117,18 @@ class DetectorNode(Node):
             msg.detections.append(item)
 
         self.publisher.publish(msg)
+        if self.show_window:
+            cv2.imshow(self.window_name, annotated_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                self.get_logger().info("Display window requested shutdown with 'q'.")
+                if rclpy.ok():
+                    rclpy.shutdown()
 
     def destroy_node(self):
         if hasattr(self, 'cap') and self.cap.isOpened():
             self.cap.release()
+        if getattr(self, 'show_window', False):
+            cv2.destroyAllWindows()
         super().destroy_node()
 
 
