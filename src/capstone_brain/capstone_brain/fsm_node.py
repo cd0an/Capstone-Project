@@ -54,8 +54,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('angular_hold_speed', 1.20)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_spin_on_sec', 0.03)
-        self.declare_parameter('search_spin_off_sec', 0.45)
+        self.declare_parameter('search_spin_on_sec', 0.02)
+        self.declare_parameter('search_spin_off_sec', 0.70)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -266,7 +266,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.APPROACH_BALL:
             self.publish_target('ball')
-            self.publish_mode('TRACK')
+            self.publish_mode('HOLD')
             self.publish_rgb(0, 120, 255)
             lost_ball = (
                 self.latest_status.target_class != 'ball' or
@@ -306,7 +306,7 @@ class SoccerFSMNode(Node):
 
         elif self.state == self.SEARCH_GOAL:
             self.publish_target('goal')
-            self.publish_mode('SEARCH')
+            self.publish_mode('HOLD')
             self.publish_rgb(255, 255, 0)
             if goal_detection is not None and self.latest_status.target_class == 'goal' and self.latest_status.visible:
                 self.last_goal_seen_time = now
@@ -370,32 +370,39 @@ class SoccerFSMNode(Node):
             scaled_linear_x = min_linear if scaled_linear_x > 0.0 else -min_linear
         if 0.0 < abs(scaled_angular_z) < min_turn:
             scaled_angular_z = min_turn if scaled_angular_z > 0.0 else -min_turn
-        twist.linear.x = self.limit_rate(
-            scaled_linear_x,
-            self.last_linear_x,
-            float(self.get_parameter('max_linear_step').value),
-        )
-        twist.angular.z = self.limit_rate(
-            scaled_angular_z,
-            self.last_angular_z,
-            float(self.get_parameter('max_angular_step').value),
-        )
-        # Final output shaping handles drivetrain breakaway friction separately
-        # from the smoother steady-state "hold" speed.
-        twist.linear.x = self.enforce_axis_motion_profile(
-            twist.linear.x,
-            now,
-            float(self.get_parameter('linear_breakaway_speed').value),
-            float(self.get_parameter('linear_hold_speed').value),
-            'linear_active_since',
-        )
-        twist.angular.z = self.enforce_axis_motion_profile(
-            twist.angular.z,
-            now,
-            float(self.get_parameter('angular_breakaway_speed').value),
-            float(self.get_parameter('angular_hold_speed').value),
-            'angular_active_since',
-        )
+        if abs(scaled_linear_x) < 1e-6:
+            twist.linear.x = 0.0
+            self.linear_active_since = None
+        else:
+            ramped_linear_x = self.limit_rate(
+                scaled_linear_x,
+                self.last_linear_x,
+                float(self.get_parameter('max_linear_step').value),
+            )
+            twist.linear.x = self.enforce_axis_motion_profile(
+                ramped_linear_x,
+                now,
+                float(self.get_parameter('linear_breakaway_speed').value),
+                float(self.get_parameter('linear_hold_speed').value),
+                'linear_active_since',
+            )
+
+        if abs(scaled_angular_z) < 1e-6:
+            twist.angular.z = 0.0
+            self.angular_active_since = None
+        else:
+            ramped_angular_z = self.limit_rate(
+                scaled_angular_z,
+                self.last_angular_z,
+                float(self.get_parameter('max_angular_step').value),
+            )
+            twist.angular.z = self.enforce_axis_motion_profile(
+                ramped_angular_z,
+                now,
+                float(self.get_parameter('angular_breakaway_speed').value),
+                float(self.get_parameter('angular_hold_speed').value),
+                'angular_active_since',
+            )
         self.last_linear_x = twist.linear.x
         self.last_angular_z = twist.angular.z
         self.cmd_pub.publish(twist)

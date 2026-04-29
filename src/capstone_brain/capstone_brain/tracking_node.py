@@ -31,6 +31,7 @@ class TrackingNode(Node):
         self.declare_parameter('gimbal_topic', '/manual_gimbal_cmd')
         self.declare_parameter('pan_center', 1500.0)
         self.declare_parameter('tilt_center', 1650.0)
+        self.declare_parameter('lock_gimbal', True)
         self.declare_parameter('pan_min', 800.0)
         self.declare_parameter('pan_max', 2200.0)
         self.declare_parameter('tilt_min', 1450.0)
@@ -118,6 +119,30 @@ class TrackingNode(Node):
         status.target_class = self.target_class
         status.stale = stale
         status.pan_error = self.current_pan_error()
+
+        if bool(self.get_parameter('lock_gimbal').value):
+            self.servo_x = float(self.get_parameter('pan_center').value)
+            self.servo_y = float(self.get_parameter('tilt_center').value)
+            self.publish_gimbal(self.servo_x, self.servo_y)
+            if detection is not None:
+                target_center_x = detection.frame_width / 2.0
+                target_center_y = detection.frame_height / 2.0
+                status.visible = not stale
+                status.centered = abs(target_center_x - detection.center_x) <= float(self.get_parameter('center_tolerance_px').value)
+                status.in_range = self.target_class == 'ball' and detection.area >= float(self.get_parameter('close_area_ball').value)
+                status.error_x = float(target_center_x - detection.center_x)
+                status.error_y = float(target_center_y - detection.center_y)
+                status.area = float(detection.area)
+                status.confidence = float(detection.confidence)
+                status.frame_width = int(detection.frame_width)
+                status.frame_height = int(detection.frame_height)
+            else:
+                status.visible = False
+                status.centered = False
+                status.in_range = False
+            status.pan_error = 0.0
+            self.status_pub.publish(status)
+            return
 
         if self.mode == 'HOLD':
             if detection is not None:
