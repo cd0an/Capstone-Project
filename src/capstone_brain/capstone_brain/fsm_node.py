@@ -54,8 +54,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('angular_hold_speed', 1.20)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_spin_on_sec', 0.05)
-        self.declare_parameter('search_spin_off_sec', 0.30)
+        self.declare_parameter('search_spin_on_sec', 0.03)
+        self.declare_parameter('search_spin_off_sec', 0.45)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -226,16 +226,17 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('SEARCH')
             self.publish_rgb(255, 0, 0)
-            # Use a pulsed search spin so the robot breaks static friction without
-            # continuously rotating faster than the detector can tolerate.
-            search_on = float(self.get_parameter('search_spin_on_sec').value)
-            search_off = float(self.get_parameter('search_spin_off_sec').value)
-            search_cycle = search_on + search_off
-            if search_cycle > 0.0 and (state_elapsed % search_cycle) < search_on:
-                twist.angular.z = turn_sign
             if ball_detection is not None:
                 self.last_ball_seen_time = now
                 self.transition(self.APPROACH_BALL)
+            else:
+                # Search uses a short in-place spin pulse, then a longer pause for
+                # the detector to stabilize before the next pulse.
+                search_on = float(self.get_parameter('search_spin_on_sec').value)
+                search_off = float(self.get_parameter('search_spin_off_sec').value)
+                search_cycle = search_on + search_off
+                if search_cycle > 0.0 and (state_elapsed % search_cycle) < search_on:
+                    twist.angular.z = turn_sign
 
         elif self.state == self.ALIGN_TO_BALL:
             self.publish_target('ball')
