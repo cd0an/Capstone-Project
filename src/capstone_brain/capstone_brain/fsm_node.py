@@ -67,7 +67,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
-        self.declare_parameter('ball_possession_settle_sec', 0.45)
+        self.declare_parameter('ball_possession_settle_sec', 0.70)
         self.declare_parameter('ball_possession_settle_speed', 0.14)
         self.declare_parameter('ball_possession_hold_speed', 0.05)
         self.declare_parameter('ball_possession_release_ignore_sec', 1.40)
@@ -90,12 +90,12 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 120.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 90.0)
         self.declare_parameter('ball_close_center_threshold_px', 100.0)
         self.declare_parameter('ball_close_steer_band_px', 150.0)
         self.declare_parameter('ball_close_center_area', 4500.0)
-        self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
-        self.declare_parameter('ball_chase_crawl_speed', 0.0)
+        self.declare_parameter('ball_chase_crawl_threshold_px', 160.0)
+        self.declare_parameter('ball_chase_crawl_speed', 0.06)
         self.declare_parameter('ball_close_steer_speed', 0.08)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
         self.declare_parameter('ball_close_max_turn_speed', 0.22)
@@ -352,7 +352,10 @@ class SoccerFSMNode(Node):
                 self.ball_possession_release_since = None
 
                 close_steer_band = float(self.get_parameter('ball_close_steer_band_px').value)
+                general_steer_band = float(self.get_parameter('ball_chase_crawl_threshold_px').value)
                 close_creep_mode = close_area_mode and not centered_enough and abs(error_x) <= close_steer_band
+                general_creep_mode = (not close_area_mode) and (not centered_enough) and abs(error_x) <= general_steer_band
+                creep_mode = close_creep_mode or general_creep_mode
 
                 if centered_enough:
                     twist.angular.z = 0.0
@@ -370,12 +373,14 @@ class SoccerFSMNode(Node):
                     self.approach_turn_reference_error = None
                     self.approach_turn_stuck_since = None
                     self.approach_turn_stuck_active = False
-                elif close_creep_mode:
-                    twist.linear.x = forward_sign * float(self.get_parameter('ball_close_steer_speed').value)
+                elif creep_mode:
+                    creep_speed = float(self.get_parameter('ball_close_steer_speed').value) if close_area_mode else float(self.get_parameter('ball_chase_crawl_speed').value)
+                    turn_limit = float(self.get_parameter('ball_close_max_turn_speed').value) if close_area_mode else float(self.get_parameter('ball_chase_max_turn_speed').value)
+                    twist.linear.x = forward_sign * creep_speed
                     twist.angular.z = self.biased_turn(
                         error_x,
                         float(self.get_parameter('ball_chase_turn_gain').value),
-                        float(self.get_parameter('ball_close_max_turn_speed').value),
+                        turn_limit,
                         float(self.get_parameter('min_chase_turn_speed').value),
                     )
                     twist.angular.z *= turn_sign
@@ -424,7 +429,7 @@ class SoccerFSMNode(Node):
                     f"close={int(close_area_mode)} thr={center_threshold:.0f} centered={int(centered_enough)} cand={int(self.latest_status.possession_candidate)} "
                     f"cand_stable={self.candidate_stable_since is not None} "
                     f"armed={int(self.last_possession_candidate_time > 0.0 and (now - self.last_possession_candidate_time) <= float(self.get_parameter('blind_zone_capture_timeout_sec').value))} "
-                    f"straight={int(self.last_approach_was_straight)} creep={int(close_creep_mode)} stuck={int(self.approach_turn_stuck_active)} vx={twist.linear.x:.3f} wz={twist.angular.z:.3f}"
+                    f"straight={int(self.last_approach_was_straight)} creep={int(creep_mode)} stuck={int(self.approach_turn_stuck_active)} vx={twist.linear.x:.3f} wz={twist.angular.z:.3f}"
                 )
             else:
                 candidate_recent = (
@@ -454,38 +459,13 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('HOLD')
             self.publish_rgb(0, 255, 0)
-            # Let the robot carry the ball into the plow for a brief settle
-            # window instead of stopping abruptly and letting momentum roll it
-            # back out.
+            # Demo behavior: once possession is declared, pin the ball for a
+            # brief settle window, then stop and stay latched in possession.
             if state_elapsed < float(self.get_parameter('ball_possession_settle_sec').value):
                 twist.linear.x = forward_sign * float(self.get_parameter('ball_possession_settle_speed').value)
             else:
-                twist.linear.x = forward_sign * float(self.get_parameter('ball_possession_hold_speed').value)
-
-            # Once possession is declared, ignore brief reappearances and only
-            # release if the ball is clearly visible outside the capture zone for
-            # a sustained window. Centered-but-farther-ahead reappearances count
-            # as release candidates too; otherwise the state can get stuck.
-            release_visible = (
-                self.latest_status.target_class == 'ball'
-                and self.latest_status.visible
-                and not self.latest_status.stale
-                and not self.latest_status.possession_candidate
-                and (
-                    abs(self.latest_status.error_x) > float(self.get_parameter('possession_turn_tolerance_px').value)
-                    or self.latest_status.error_y > float(self.get_parameter('ball_possession_release_err_y_min').value)
-                    or self.latest_status.area < float(self.get_parameter('ball_possession_release_area_max').value)
-                )
-            )
-            if state_elapsed < float(self.get_parameter('ball_possession_release_ignore_sec').value):
-                self.ball_possession_release_since = None
-            elif release_visible:
-                if self.ball_possession_release_since is None:
-                    self.ball_possession_release_since = now
-                elif (now - self.ball_possession_release_since) >= float(self.get_parameter('ball_possession_release_hold_sec').value):
-                    self.transition(self.RECOVER)
-            else:
-                self.ball_possession_release_since = None
+                twist.linear.x = 0.0
+            self.ball_possession_release_since = None
 
         elif self.state == self.SEARCH_GOAL:
             self.transition(self.RECOVER)
