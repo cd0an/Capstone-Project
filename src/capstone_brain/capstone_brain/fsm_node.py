@@ -50,10 +50,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('min_effective_turn_speed', 0.10)
         self.declare_parameter('linear_breakaway_speed', 0.26)
         self.declare_parameter('linear_hold_speed', 0.18)
-        self.declare_parameter('angular_breakaway_speed', 1.50)
+        self.declare_parameter('angular_breakaway_speed', 2.60)
         self.declare_parameter('angular_hold_speed', 1.20)
         self.declare_parameter('approach_turn_breakaway_speed', 1.50)
-        self.declare_parameter('approach_turn_hold_speed', 0.80)
+        self.declare_parameter('approach_turn_hold_speed', 0.45)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
@@ -78,10 +78,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 190.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 220.0)
         self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.0)
-        self.declare_parameter('ball_chase_max_turn_speed', 0.16)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.14)
         self.declare_parameter('ball_chase_max_speed', 0.20)
 
         self.state = self.SEARCH_BALL
@@ -438,6 +438,7 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 
 
