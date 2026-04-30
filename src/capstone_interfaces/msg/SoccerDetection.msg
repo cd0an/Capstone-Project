@@ -6,4 +6,5 @@ float32 area
 float32 confidence
 uint32 frame_width
 uint32 frame_height
+float32 bbox_bottom_y
 bool is_primary

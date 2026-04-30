@@ -14,6 +14,7 @@ class DetectionSnapshot:
     class_name: str
     center_x: float
     center_y: float
+    bbox_bottom_y: float
     area: float
     confidence: float
     frame_width: int
@@ -68,6 +69,7 @@ class TrackingNode(Node):
                 class_name=detection.class_name,
                 center_x=detection.center_x,
                 center_y=detection.center_y,
+                bbox_bottom_y=detection.bbox_bottom_y,
                 area=detection.area,
                 confidence=detection.confidence,
                 frame_width=detection.frame_width,
@@ -115,7 +117,7 @@ class TrackingNode(Node):
         pan_center = float(self.get_parameter('pan_center').value)
         return float(self.servo_x - pan_center)
 
-    def compute_possession_candidate(self, visible, target_class, center_x_error, detection_center_y, area):
+    def compute_possession_candidate(self, visible, target_class, center_x_error, detection_bottom_y, area):
         if not visible or target_class != 'ball':
             return False
         center_tolerance = float(self.get_parameter('possession_center_tolerance_px').value)
@@ -123,7 +125,7 @@ class TrackingNode(Node):
         possession_min_area = float(self.get_parameter('possession_min_area').value)
         return (
             abs(center_x_error) <= center_tolerance
-            and detection_center_y >= possession_row_px
+            and detection_bottom_y >= possession_row_px
             and area >= possession_min_area
         )
 
@@ -150,7 +152,7 @@ class TrackingNode(Node):
             visible,
             self.target_class,
             error_x,
-            float(detection.center_y),
+            float(detection.bbox_bottom_y),
             float(detection.area),
         )
 

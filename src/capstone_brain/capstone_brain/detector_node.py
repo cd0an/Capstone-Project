@@ -150,6 +150,7 @@ class DetectorNode(Node):
                     'class_name': class_name,
                     'center_x': float((x1 + x2) / 2.0),
                     'center_y': float((y1 + y2) / 2.0),
+                    'bottom_y': float(y2),
                     'width': width,
                     'height': height,
                     'area': area,
@@ -181,6 +182,7 @@ class DetectorNode(Node):
             item.confidence = detection['confidence']
             item.frame_width = int(frame_width)
             item.frame_height = int(frame_height)
+            item.bbox_bottom_y = detection['bottom_y']
             item.is_primary = True
             msg.detections.append(item)
             new_primary_by_class[detection['class_name']] = detection
