@@ -101,7 +101,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
         self.declare_parameter('ball_chase_center_threshold_px', 60.0)
-        self.declare_parameter('ball_chase_center_exit_threshold_px', 80.0)
+        self.declare_parameter('ball_chase_center_exit_threshold_px', 65.0)
         self.declare_parameter('ball_close_center_threshold_px', 45.0)
         self.declare_parameter('ball_close_center_exit_threshold_px', 65.0)
         self.declare_parameter('ball_near_err_y_threshold_px', 120.0)
@@ -141,6 +141,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('visible_possession_deep_min_area', 11000.0)
         self.declare_parameter('visible_possession_deep_max_err_x', 180.0)
         self.declare_parameter('visible_possession_deep_recent_center_sec', 0.45)
+        self.declare_parameter('visible_possession_close_min_area', 15000.0)
+        self.declare_parameter('visible_possession_close_max_err_x', 45.0)
+        self.declare_parameter('visible_possession_close_recent_center_sec', 0.35)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -543,12 +546,28 @@ class SoccerFSMNode(Node):
                     and abs(error_x) <= float(self.get_parameter('visible_possession_deep_max_err_x').value)
                     and (now - self.last_ball_centered_time) <= float(self.get_parameter('visible_possession_deep_recent_center_sec').value)
                 )
+                close_visible_ready = (
+                    close_area_mode
+                    and near_ball_mode
+                    and tracking_area >= float(self.get_parameter('visible_possession_close_min_area').value)
+                    and abs(error_x) <= float(self.get_parameter('visible_possession_close_max_err_x').value)
+                    and (now - self.last_ball_centered_time) <= float(self.get_parameter('visible_possession_close_recent_center_sec').value)
+                )
                 if visible_possession_ready:
                     if self.visible_possession_ready_since is None:
                         self.visible_possession_ready_since = now
                     elif (now - self.visible_possession_ready_since) >= float(self.get_parameter('visible_possession_confirm_hold_sec').value):
                         debug_message = (
                             f"APPROACH visible possession confirm area={tracking_area:.0f} err_x={error_x:.1f} err_y={error_y:.1f} -> BALL_POSSESSION"
+                        )
+                        self.transition(self.BALL_POSSESSION)
+                elif close_visible_ready:
+                    if self.visible_possession_ready_since is None:
+                        self.visible_possession_ready_since = now
+                    elif (now - self.visible_possession_ready_since) >= float(self.get_parameter('visible_possession_confirm_hold_sec').value):
+                        debug_message = (
+                            f"APPROACH close visible fallback area={tracking_area:.0f} err_x={error_x:.1f} "
+                            f"recent_center={(now - self.last_ball_centered_time):.2f}s -> BALL_POSSESSION"
                         )
                         self.transition(self.BALL_POSSESSION)
                 elif deep_visible_ready:
