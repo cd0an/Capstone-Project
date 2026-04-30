@@ -69,8 +69,11 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_possession_hold_sec', 0.6)
         self.declare_parameter('ball_possession_settle_sec', 0.45)
         self.declare_parameter('ball_possession_settle_speed', 0.14)
+        self.declare_parameter('ball_possession_hold_speed', 0.05)
         self.declare_parameter('ball_possession_release_ignore_sec', 1.40)
         self.declare_parameter('ball_possession_release_hold_sec', 0.70)
+        self.declare_parameter('ball_possession_release_err_y_min', 10.0)
+        self.declare_parameter('ball_possession_release_area_max', 18000.0)
         self.declare_parameter('kick_duration_sec', 0.45)
         self.declare_parameter('goal_search_timeout_sec', 5.0)
         self.declare_parameter('ball_lost_timeout_sec', 1.2)
@@ -456,16 +459,23 @@ class SoccerFSMNode(Node):
             # back out.
             if state_elapsed < float(self.get_parameter('ball_possession_settle_sec').value):
                 twist.linear.x = forward_sign * float(self.get_parameter('ball_possession_settle_speed').value)
+            else:
+                twist.linear.x = forward_sign * float(self.get_parameter('ball_possession_hold_speed').value)
 
             # Once possession is declared, ignore brief reappearances and only
             # release if the ball is clearly visible outside the capture zone for
-            # a sustained window.
+            # a sustained window. Centered-but-farther-ahead reappearances count
+            # as release candidates too; otherwise the state can get stuck.
             release_visible = (
                 self.latest_status.target_class == 'ball'
                 and self.latest_status.visible
                 and not self.latest_status.stale
                 and not self.latest_status.possession_candidate
-                and abs(self.latest_status.error_x) > float(self.get_parameter('possession_turn_tolerance_px').value)
+                and (
+                    abs(self.latest_status.error_x) > float(self.get_parameter('possession_turn_tolerance_px').value)
+                    or self.latest_status.error_y > float(self.get_parameter('ball_possession_release_err_y_min').value)
+                    or self.latest_status.area < float(self.get_parameter('ball_possession_release_area_max').value)
+                )
             )
             if state_elapsed < float(self.get_parameter('ball_possession_release_ignore_sec').value):
                 self.ball_possession_release_since = None
