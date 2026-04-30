@@ -38,6 +38,7 @@ setup(
             "detector_node = capstone_brain.detector_node:main",
             "tracking_node = capstone_brain.tracking_node:main",
             "fsm_node = capstone_brain.fsm_node:main",
+            "plow_calibrator = capstone_brain.plow_calibrator:main",
         ],
     },
 )
