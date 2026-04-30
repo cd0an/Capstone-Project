@@ -113,6 +113,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
         self.declare_parameter('possession_turn_tolerance_px', 140.0)
         self.declare_parameter('possession_max_turn_cmd', 0.14)
+        self.declare_parameter('possession_confirm_min_area', 10000.0)
+        self.declare_parameter('possession_confirm_max_err_y', 70.0)
+        self.declare_parameter('possession_confirm_center_tolerance_px', 120.0)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -131,6 +134,9 @@ class SoccerFSMNode(Node):
         self.linear_active_since = None
         self.angular_active_since = None
         self.last_possession_candidate_time = 0.0
+        self.last_possession_candidate_area = 0.0
+        self.last_possession_candidate_error_y = 0.0
+        self.last_possession_candidate_error_x = 0.0
         self.candidate_stable_since = None
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
@@ -187,6 +193,9 @@ class SoccerFSMNode(Node):
 
     def reset_possession_tracking(self):
         self.last_possession_candidate_time = 0.0
+        self.last_possession_candidate_area = 0.0
+        self.last_possession_candidate_error_y = 0.0
+        self.last_possession_candidate_error_x = 0.0
         self.candidate_stable_since = None
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
@@ -446,6 +455,9 @@ class SoccerFSMNode(Node):
                         self.candidate_stable_since = now
                     elif (now - self.candidate_stable_since) >= float(self.get_parameter('possession_candidate_hold_sec').value):
                         self.last_possession_candidate_time = now
+                        self.last_possession_candidate_area = float(tracking_area)
+                        self.last_possession_candidate_error_y = float(error_y)
+                        self.last_possession_candidate_error_x = float(error_x)
                 else:
                     self.candidate_stable_since = None
 
@@ -461,17 +473,22 @@ class SoccerFSMNode(Node):
                     self.last_possession_candidate_time > 0.0 and
                     (now - self.last_possession_candidate_time) <= float(self.get_parameter('blind_zone_capture_timeout_sec').value)
                 )
-                if candidate_recent and self.last_approach_was_straight:
+                strong_candidate = (
+                    self.last_possession_candidate_area >= float(self.get_parameter('possession_confirm_min_area').value)
+                    and self.last_possession_candidate_error_y <= float(self.get_parameter('possession_confirm_max_err_y').value)
+                    and abs(self.last_possession_candidate_error_x) <= float(self.get_parameter('possession_confirm_center_tolerance_px').value)
+                )
+                if candidate_recent and self.last_approach_was_straight and strong_candidate:
                     if self.ball_blind_zone_since is None:
                         self.ball_blind_zone_since = now
                     debug_message = (
-                        f"APPROACH blind-zone capture candidate_recent=1 straight=1 "
-                        f"dt={(now - self.last_possession_candidate_time):.2f} -> BALL_POSSESSION"
+                        f"APPROACH blind-zone capture candidate_recent=1 strong=1 straight=1 "
+                        f"dt={(now - self.last_possession_candidate_time):.2f} area={self.last_possession_candidate_area:.0f} err_y={self.last_possession_candidate_error_y:.1f} err_x={self.last_possession_candidate_error_x:.1f} -> BALL_POSSESSION"
                     )
                     self.transition(self.BALL_POSSESSION)
                 else:
                     debug_message = (
-                        f"APPROACH lost visible=0 candidate_recent={int(candidate_recent)} "
+                        f"APPROACH lost visible=0 candidate_recent={int(candidate_recent)} strong={int(strong_candidate)} "
                         f"straight={int(self.last_approach_was_straight)} -> RECOVER"
                     )
                     self.transition(self.RECOVER)
