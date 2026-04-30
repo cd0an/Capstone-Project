@@ -71,12 +71,12 @@ class SoccerFSMNode(Node):
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('approach_drive_turn_hold_speed', 0.12)
         self.declare_parameter('approach_curve_turn_breakaway_speed', 1.60)
-        self.declare_parameter('approach_curve_turn_hold_speed', 0.65)
+        self.declare_parameter('approach_curve_turn_hold_speed', 0.40)
         self.declare_parameter('approach_curve_turn_stuck_breakaway_speed', 1.90)
-        self.declare_parameter('approach_curve_turn_stuck_hold_speed', 1.05)
+        self.declare_parameter('approach_curve_turn_stuck_hold_speed', 0.80)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('approach_turn_breakaway_duration_sec', 0.30)
-        self.declare_parameter('approach_curve_turn_breakaway_duration_sec', 0.65)
+        self.declare_parameter('approach_curve_turn_breakaway_duration_sec', 0.28)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('startup_hold_sec', 9.0)
         self.declare_parameter('search_spin_on_sec', 0.12)
@@ -84,8 +84,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
-        self.declare_parameter('ball_possession_settle_sec', 0.35)
-        self.declare_parameter('ball_possession_settle_speed', 0.08)
+        self.declare_parameter('ball_possession_settle_sec', 0.18)
+        self.declare_parameter('ball_possession_settle_speed', 0.03)
         self.declare_parameter('ball_possession_hold_speed', 0.05)
         self.declare_parameter('ball_possession_release_ignore_sec', 1.40)
         self.declare_parameter('ball_possession_release_hold_sec', 0.70)
@@ -138,20 +138,21 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_arc_min_forward_scale', 0.05)
         self.declare_parameter('ball_arc_pivot_err_x', 420.0)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
-        self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
+        self.declare_parameter('blind_zone_capture_timeout_sec', 0.80)
+        self.declare_parameter('blind_zone_capture_recent_center_sec', 0.45)
         self.declare_parameter('possession_turn_tolerance_px', 70.0)
         self.declare_parameter('possession_max_turn_cmd', 0.25)
         self.declare_parameter('possession_confirm_min_area', 9000.0)
-        self.declare_parameter('possession_confirm_center_tolerance_px', 180.0)
+        self.declare_parameter('possession_confirm_center_tolerance_px', 70.0)
         self.declare_parameter('visible_possession_confirm_hold_sec', 0.05)
-        self.declare_parameter('visible_possession_confirm_max_err_x', 60.0)
+        self.declare_parameter('visible_possession_confirm_max_err_x', 40.0)
         self.declare_parameter('visible_possession_deep_bottom_px', 470.0)
         self.declare_parameter('visible_possession_deep_min_area', 13500.0)
-        self.declare_parameter('visible_possession_deep_max_err_x', 50.0)
-        self.declare_parameter('visible_possession_deep_recent_center_sec', 0.30)
+        self.declare_parameter('visible_possession_deep_max_err_x', 35.0)
+        self.declare_parameter('visible_possession_deep_recent_center_sec', 0.22)
         self.declare_parameter('visible_possession_close_min_area', 15000.0)
-        self.declare_parameter('visible_possession_close_max_err_x', 18.0)
-        self.declare_parameter('visible_possession_close_recent_center_sec', 0.30)
+        self.declare_parameter('visible_possession_close_max_err_x', 12.0)
+        self.declare_parameter('visible_possession_close_recent_center_sec', 0.20)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -631,18 +632,19 @@ class SoccerFSMNode(Node):
                     self.last_possession_candidate_area >= float(self.get_parameter('possession_confirm_min_area').value)
                     and abs(self.last_possession_candidate_error_x) <= float(self.get_parameter('possession_confirm_center_tolerance_px').value)
                 )
-                if candidate_recent and self.last_approach_was_straight and strong_candidate:
+                recent_center_capture = (now - self.last_ball_centered_time) <= float(self.get_parameter('blind_zone_capture_recent_center_sec').value)
+                if candidate_recent and strong_candidate and (self.last_approach_was_straight or recent_center_capture):
                     if self.ball_blind_zone_since is None:
                         self.ball_blind_zone_since = now
                     debug_message = (
-                        f"APPROACH blind-zone capture candidate_recent=1 strong=1 straight=1 "
+                        f"APPROACH blind-zone capture candidate_recent=1 strong=1 straight={int(self.last_approach_was_straight)} recent_center={int(recent_center_capture)} "
                         f"dt={(now - self.last_possession_candidate_time):.2f} area={self.last_possession_candidate_area:.0f} err_y={self.last_possession_candidate_error_y:.1f} err_x={self.last_possession_candidate_error_x:.1f} -> BALL_POSSESSION"
                     )
                     self.transition(self.BALL_POSSESSION)
                 else:
                     debug_message = (
                         f"APPROACH lost visible=0 candidate_recent={int(candidate_recent)} strong={int(strong_candidate)} "
-                        f"straight={int(self.last_approach_was_straight)} -> RECOVER"
+                        f"straight={int(self.last_approach_was_straight)} recent_center={int((now - self.last_ball_centered_time) <= float(self.get_parameter('blind_zone_capture_recent_center_sec').value))} -> RECOVER"
                     )
                     self.transition(self.RECOVER)
 
@@ -811,6 +813,8 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+
 
 
 
