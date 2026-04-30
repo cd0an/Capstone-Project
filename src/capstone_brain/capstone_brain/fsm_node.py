@@ -56,10 +56,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_centered_linear_breakaway_speed', 0.14)
         self.declare_parameter('approach_centered_linear_hold_speed', 0.06)
         self.declare_parameter('approach_centered_min_effective_linear_speed', 0.04)
-        self.declare_parameter('approach_close_linear_breakaway_speed', 0.24)
-        self.declare_parameter('approach_close_linear_hold_speed', 0.12)
-        self.declare_parameter('approach_near_linear_breakaway_speed', 0.18)
-        self.declare_parameter('approach_near_linear_hold_speed', 0.10)
+        self.declare_parameter('approach_close_linear_breakaway_speed', 0.10)
+        self.declare_parameter('approach_close_linear_hold_speed', 0.05)
+        self.declare_parameter('approach_near_linear_breakaway_speed', 0.08)
+        self.declare_parameter('approach_near_linear_hold_speed', 0.04)
         self.declare_parameter('approach_curve_linear_breakaway_speed', 0.50)
         self.declare_parameter('approach_curve_linear_hold_speed', 0.24)
         self.declare_parameter('angular_breakaway_speed', 2.60)
@@ -95,8 +95,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
-        self.declare_parameter('ball_possession_settle_sec', 0.18)
-        self.declare_parameter('ball_possession_settle_speed', 0.03)
+        self.declare_parameter('ball_possession_settle_sec', 0.0)
+        self.declare_parameter('ball_possession_settle_speed', 0.0)
         self.declare_parameter('ball_possession_hold_speed', 0.05)
         self.declare_parameter('ball_possession_release_ignore_sec', 1.40)
         self.declare_parameter('ball_possession_release_hold_sec', 0.70)
@@ -162,11 +162,11 @@ class SoccerFSMNode(Node):
         self.declare_parameter('visible_possession_deep_max_err_x', 35.0)
         self.declare_parameter('visible_possession_deep_recent_center_sec', 0.22)
         self.declare_parameter('visible_possession_close_min_area', 7000.0)
-        self.declare_parameter('visible_possession_close_max_err_x', 45.0)
+        self.declare_parameter('visible_possession_close_max_err_x', 60.0)
         self.declare_parameter('visible_possession_close_max_err_y', 30.0)
         self.declare_parameter('visible_possession_close_recent_center_sec', 0.20)
         self.declare_parameter('approach_plow_brake_min_area', 6500.0)
-        self.declare_parameter('approach_plow_brake_max_err_x', 45.0)
+        self.declare_parameter('approach_plow_brake_max_err_x', 80.0)
         self.declare_parameter('approach_plow_brake_max_err_y', 30.0)
         self.declare_parameter('approach_plow_brake_recent_center_sec', 0.30)
         self.declare_parameter('approach_plow_brake_speed', 0.0)
@@ -686,12 +686,11 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('HOLD')
             self.publish_rgb(0, 255, 0)
-            # Demo behavior: once possession is declared, pin the ball for a
-            # brief settle window, then stop and stay latched in possession.
-            if state_elapsed < float(self.get_parameter('ball_possession_settle_sec').value):
-                twist.linear.x = forward_sign * float(self.get_parameter('ball_possession_settle_speed').value)
-            else:
-                twist.linear.x = 0.0
+            # Stop immediately on possession. Any nonzero settle command gets
+            # re-inflated by the downstream minimum-speed and breakaway logic
+            # and turns into an unwanted shove.
+            twist.linear.x = 0.0
+            twist.angular.z = 0.0
             self.ball_possession_release_since = None
 
         elif self.state == self.SEARCH_GOAL:
