@@ -40,6 +40,7 @@ class DetectorNode(Node):
         self.declare_parameter('ball_square_min_ratio', 0.35)
         self.declare_parameter('ball_square_score_floor', 0.25)
         self.declare_parameter('ball_confidence_weight', 0.15)
+        self.declare_parameter('ball_min_fill_ratio', 0.18)
 
         model_root = Path(get_package_share_directory('capstone_brain')) / 'models' / 'turbopi_ncnn_model'
         self.model = YOLO(str(model_root), task='segment')
@@ -97,6 +98,9 @@ class DetectorNode(Node):
         score = candidate['area']
         if class_name != 'ball':
             return score
+
+        if candidate.get('fill_ratio', 1.0) < float(self.get_parameter('ball_min_fill_ratio').value):
+            return 0.0
 
         shape_multiplier = self.ball_shape_multiplier(candidate['width'], candidate['height'])
         if shape_multiplier <= 0.0:
@@ -162,8 +166,11 @@ class DetectorNode(Node):
         )
 
         primary_by_class = {}
+        masks_xy = []
+        if results and getattr(results[0], 'masks', None) is not None and getattr(results[0].masks, 'xy', None) is not None:
+            masks_xy = results[0].masks.xy
         if results and len(results[0].boxes) > 0:
-            for box in results[0].boxes:
+            for index, box in enumerate(results[0].boxes):
                 cls_id = int(box.cls[0])
                 class_name = CLASS_MAP.get(cls_id)
                 if not class_name:
@@ -172,16 +179,42 @@ class DetectorNode(Node):
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 width = float(x2 - x1)
                 height = float(y2 - y1)
-                area = float(width * height)
+                bbox_area = float(width * height)
                 confidence = float(box.conf[0]) if box.conf is not None else 0.0
+                center_x = float((x1 + x2) / 2.0)
+                center_y = float((y1 + y2) / 2.0)
+                bottom_y = float(y2)
+                area = bbox_area
+                fill_ratio = 1.0
+
+                if class_name == 'ball' and index < len(masks_xy):
+                    polygon = masks_xy[index]
+                    if polygon is not None and len(polygon) >= 3:
+                        polygon = polygon.astype('float32')
+                        mask_area = abs(float(cv2.contourArea(polygon)))
+                        if mask_area > 1.0:
+                            moments = cv2.moments(polygon)
+                            if abs(moments['m00']) > 1e-6:
+                                center_x = float(moments['m10'] / moments['m00'])
+                                center_y = float(moments['m01'] / moments['m00'])
+                            bottom_y = float(polygon[:, 1].max())
+                            x_coords = polygon[:, 0]
+                            y_coords = polygon[:, 1]
+                            width = max(1.0, float(x_coords.max() - x_coords.min()))
+                            height = max(1.0, float(y_coords.max() - y_coords.min()))
+                            area = mask_area
+                            fill_ratio = mask_area / max(bbox_area, 1.0)
+
                 candidate = {
                     'class_name': class_name,
-                    'center_x': float((x1 + x2) / 2.0),
-                    'center_y': float((y1 + y2) / 2.0),
-                    'bottom_y': float(y2),
+                    'center_x': center_x,
+                    'center_y': center_y,
+                    'bottom_y': bottom_y,
                     'width': width,
                     'height': height,
                     'area': area,
+                    'bbox_area': bbox_area,
+                    'fill_ratio': fill_ratio,
                     'confidence': confidence,
                 }
                 candidate_score = self.candidate_score(class_name, candidate, frame_width, frame_height)
