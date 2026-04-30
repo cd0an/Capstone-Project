@@ -75,10 +75,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
-        self.declare_parameter('min_chase_turn_speed', 0.10)
-        self.declare_parameter('ball_chase_center_threshold_px', 140.0)
+        self.declare_parameter('min_chase_turn_speed', 0.14)
+        self.declare_parameter('ball_chase_center_threshold_px', 160.0)
         self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
-        self.declare_parameter('ball_chase_crawl_speed', 0.12)
+        self.declare_parameter('ball_chase_crawl_speed', 0.0)
         self.declare_parameter('ball_chase_max_turn_speed', 0.22)
         self.declare_parameter('ball_chase_max_speed', 0.20)
 
@@ -285,24 +285,29 @@ class SoccerFSMNode(Node):
             else:
                 error_x = self.latest_status.error_x
                 tracking_area = self.latest_status.area
-                twist.angular.z = self.biased_turn(
-                    error_x,
-                    float(self.get_parameter('ball_chase_turn_gain').value),
-                    float(self.get_parameter('ball_chase_max_turn_speed').value),
-                    float(self.get_parameter('min_chase_turn_speed').value),
-                )
-                twist.angular.z *= turn_sign
-                if abs(error_x) < float(self.get_parameter('ball_chase_center_threshold_px').value):
+                centered_enough = abs(error_x) < float(self.get_parameter('ball_chase_center_threshold_px').value)
+
+                if centered_enough:
+                    # Drive straight once the ball is inside a usable cone.
+                    twist.angular.z = 0.0
                     area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
                     twist.linear.x = forward_sign * self.proportional(
                         area_error,
                         0.000006,
                         float(self.get_parameter('ball_chase_max_speed').value),
                     )
-                elif abs(error_x) < float(self.get_parameter('ball_chase_crawl_threshold_px').value):
-                    twist.linear.x = forward_sign * float(self.get_parameter('ball_chase_crawl_speed').value)
                 else:
+                    # Turn in place until the ball is roughly centered. Mixing
+                    # forward motion with a stuck wheel causes the chassis to arc
+                    # off target, so do not crawl here.
                     twist.linear.x = 0.0
+                    twist.angular.z = self.biased_turn(
+                        error_x,
+                        float(self.get_parameter('ball_chase_turn_gain').value),
+                        float(self.get_parameter('ball_chase_max_turn_speed').value),
+                        float(self.get_parameter('min_chase_turn_speed').value),
+                    )
+                    twist.angular.z *= turn_sign
                 if self.latest_status.in_range:
                     self.transition(self.BALL_POSSESSION)
 
@@ -417,3 +422,4 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
