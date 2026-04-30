@@ -70,6 +70,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_crawl_speed', 0.015)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('approach_drive_turn_hold_speed', 0.12)
+        self.declare_parameter('approach_curve_turn_breakaway_speed', 0.55)
+        self.declare_parameter('approach_curve_turn_hold_speed', 0.24)
+        self.declare_parameter('approach_curve_turn_stuck_breakaway_speed', 0.75)
+        self.declare_parameter('approach_curve_turn_stuck_hold_speed', 0.32)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('approach_turn_breakaway_duration_sec', 0.22)
         self.declare_parameter('ball_area_target', 50000.0)
@@ -750,11 +754,24 @@ class SoccerFSMNode(Node):
                     float(self.get_parameter('approach_turn_breakaway_duration_sec').value),
                 )
             else:
-                hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
-                if self.state == self.APPROACH_BALL and not self.approach_turn_stuck_active:
-                    hold_floor = float(self.get_parameter('approach_drive_turn_hold_speed').value)
-                magnitude = max(abs(ramped_angular_z), hold_floor)
-                twist.angular.z = magnitude if ramped_angular_z > 0.0 else -magnitude
+                if self.state == self.APPROACH_BALL:
+                    breakaway_speed = float(self.get_parameter('approach_curve_turn_breakaway_speed').value)
+                    hold_speed = float(self.get_parameter('approach_curve_turn_hold_speed').value)
+                    if self.approach_turn_stuck_active:
+                        breakaway_speed = float(self.get_parameter('approach_curve_turn_stuck_breakaway_speed').value)
+                        hold_speed = float(self.get_parameter('approach_curve_turn_stuck_hold_speed').value)
+                    twist.angular.z = self.enforce_axis_motion_profile(
+                        ramped_angular_z,
+                        now,
+                        breakaway_speed,
+                        hold_speed,
+                        'angular_active_since',
+                        float(self.get_parameter('approach_turn_breakaway_duration_sec').value),
+                    )
+                else:
+                    hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
+                    magnitude = max(abs(ramped_angular_z), hold_floor)
+                    twist.angular.z = magnitude if ramped_angular_z > 0.0 else -magnitude
 
         if self.state == self.APPROACH_BALL and 'debug_message' in locals() and debug_message is not None and now >= getattr(self, 'next_approach_debug_time', 0.0):
             self.get_logger().info(f"{debug_message} pub_vx={twist.linear.x:.3f} pub_wz={twist.angular.z:.3f}")
