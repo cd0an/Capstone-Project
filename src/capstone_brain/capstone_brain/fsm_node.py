@@ -50,13 +50,15 @@ class SoccerFSMNode(Node):
         self.declare_parameter('min_effective_turn_speed', 0.10)
         self.declare_parameter('linear_breakaway_speed', 0.26)
         self.declare_parameter('linear_hold_speed', 0.18)
-        self.declare_parameter('angular_breakaway_speed', 2.63)
+        self.declare_parameter('angular_breakaway_speed', 1.50)
         self.declare_parameter('angular_hold_speed', 1.20)
+        self.declare_parameter('approach_turn_breakaway_speed', 1.50)
+        self.declare_parameter('approach_turn_hold_speed', 0.80)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('search_spin_on_sec', 0.08)
-        self.declare_parameter('search_spin_off_sec', 0.70)
+        self.declare_parameter('search_spin_off_sec', 1.00)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -67,7 +69,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('lost_ball_forward_speed', 0.0)
         self.declare_parameter('lost_ball_turn_gain', 0.0)
         self.declare_parameter('ball_align_turn_gain', 0.015)
-        self.declare_parameter('ball_chase_turn_gain', 0.0030)
+        self.declare_parameter('ball_chase_turn_gain', 0.0022)
         self.declare_parameter('goal_align_turn_gain', 0.015)
         self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
@@ -75,11 +77,11 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
-        self.declare_parameter('min_chase_turn_speed', 0.14)
-        self.declare_parameter('ball_chase_center_threshold_px', 160.0)
+        self.declare_parameter('min_chase_turn_speed', 0.12)
+        self.declare_parameter('ball_chase_center_threshold_px', 190.0)
         self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.0)
-        self.declare_parameter('ball_chase_max_turn_speed', 0.22)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.16)
         self.declare_parameter('ball_chase_max_speed', 0.20)
 
         self.state = self.SEARCH_BALL
@@ -389,14 +391,14 @@ class SoccerFSMNode(Node):
                     'angular_active_since',
                 )
             elif self.state == self.APPROACH_BALL and abs(twist.linear.x) < 1e-6:
-                # Turn-only approach needs the same breakaway help as search,
-                # otherwise one wheel can stay stuck and the robot never finishes
-                # rotating onto the ball.
+                # Turn-only approach still needs breakaway help, but using the
+                # full search-spin kick makes the robot whip past the ball and lose
+                # it. Use a softer dedicated turn profile here.
                 twist.angular.z = self.enforce_axis_motion_profile(
                     ramped_angular_z,
                     now,
-                    float(self.get_parameter('angular_breakaway_speed').value),
-                    float(self.get_parameter('angular_hold_speed').value),
+                    float(self.get_parameter('approach_turn_breakaway_speed').value),
+                    float(self.get_parameter('approach_turn_hold_speed').value),
                     'angular_active_since',
                 )
             else:
@@ -436,6 +438,8 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+
 
 
 
