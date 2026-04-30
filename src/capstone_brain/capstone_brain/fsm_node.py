@@ -68,6 +68,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_crawl_speed', 0.035)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
+        self.declare_parameter('approach_turn_breakaway_duration_sec', 0.22)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('startup_hold_sec', 9.0)
         self.declare_parameter('search_spin_on_sec', 0.12)
@@ -294,7 +295,7 @@ class SoccerFSMNode(Node):
             return previous - step_limit
         return target
 
-    def enforce_axis_motion_profile(self, target, now, breakaway_speed, hold_speed, active_since_attr):
+    def enforce_axis_motion_profile(self, target, now, breakaway_speed, hold_speed, active_since_attr, breakaway_duration=None):
         if abs(target) < 1e-6:
             setattr(self, active_since_attr, None)
             return 0.0
@@ -305,7 +306,9 @@ class SoccerFSMNode(Node):
             setattr(self, active_since_attr, active_since)
 
         elapsed = now - active_since
-        floor = breakaway_speed if elapsed < float(self.get_parameter('motion_breakaway_duration_sec').value) else hold_speed
+        if breakaway_duration is None:
+            breakaway_duration = float(self.get_parameter('motion_breakaway_duration_sec').value)
+        floor = breakaway_speed if elapsed < breakaway_duration else hold_speed
         magnitude = max(abs(target), floor)
         return magnitude if target > 0.0 else -magnitude
 
@@ -664,6 +667,7 @@ class SoccerFSMNode(Node):
                     breakaway_speed,
                     hold_speed,
                     'angular_active_since',
+                    float(self.get_parameter('approach_turn_breakaway_duration_sec').value),
                 )
             else:
                 hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
