@@ -14,6 +14,7 @@ class DetectionSnapshot:
     class_name: str
     center_x: float
     center_y: float
+    bbox_bottom_y: float
     area: float
     confidence: float
     frame_width: int
@@ -126,6 +127,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('possession_confirm_center_tolerance_px', 90.0)
         self.declare_parameter('visible_possession_confirm_hold_sec', 0.15)
         self.declare_parameter('visible_possession_confirm_max_err_x', 45.0)
+        self.declare_parameter('visible_possession_deep_bottom_px', 470.0)
+        self.declare_parameter('visible_possession_deep_min_area', 11000.0)
+        self.declare_parameter('visible_possession_deep_max_err_x', 180.0)
+        self.declare_parameter('visible_possession_deep_recent_center_sec', 0.45)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -138,6 +143,7 @@ class SoccerFSMNode(Node):
         self.last_ball_error_x = 0.0
         self.last_ball_area = 0.0
         self.last_ball_pan_error = 0.0
+        self.last_ball_centered_time = 0.0
         self.last_goal_pan_error = 0.0
         self.last_linear_x = 0.0
         self.last_angular_z = 0.0
@@ -177,6 +183,7 @@ class SoccerFSMNode(Node):
                 class_name=detection.class_name,
                 center_x=detection.center_x,
                 center_y=detection.center_y,
+                bbox_bottom_y=detection.bbox_bottom_y,
                 area=detection.area,
                 confidence=detection.confidence,
                 frame_width=detection.frame_width,
@@ -192,6 +199,8 @@ class SoccerFSMNode(Node):
             self.last_ball_error_x = float(msg.error_x)
             self.last_ball_area = float(msg.area)
             self.last_ball_pan_error = float(msg.pan_error)
+            if msg.centered:
+                self.last_ball_centered_time = now
         if msg.target_class == 'goal' and msg.visible and not msg.stale:
             self.last_goal_seen_time = now
             self.last_goal_pan_error = float(msg.pan_error)
@@ -496,12 +505,28 @@ class SoccerFSMNode(Node):
                     and tracking_area >= float(self.get_parameter('possession_confirm_min_area').value)
                     and abs(error_x) <= float(self.get_parameter('visible_possession_confirm_max_err_x').value)
                 )
+                deep_visible_ready = (
+                    ball_detection is not None
+                    and float(ball_detection.bbox_bottom_y) >= float(self.get_parameter('visible_possession_deep_bottom_px').value)
+                    and tracking_area >= float(self.get_parameter('visible_possession_deep_min_area').value)
+                    and abs(error_x) <= float(self.get_parameter('visible_possession_deep_max_err_x').value)
+                    and (now - self.last_ball_centered_time) <= float(self.get_parameter('visible_possession_deep_recent_center_sec').value)
+                )
                 if visible_possession_ready:
                     if self.visible_possession_ready_since is None:
                         self.visible_possession_ready_since = now
                     elif (now - self.visible_possession_ready_since) >= float(self.get_parameter('visible_possession_confirm_hold_sec').value):
                         debug_message = (
                             f"APPROACH visible possession confirm area={tracking_area:.0f} err_x={error_x:.1f} err_y={error_y:.1f} -> BALL_POSSESSION"
+                        )
+                        self.transition(self.BALL_POSSESSION)
+                elif deep_visible_ready:
+                    if self.visible_possession_ready_since is None:
+                        self.visible_possession_ready_since = now
+                    elif (now - self.visible_possession_ready_since) >= float(self.get_parameter('visible_possession_confirm_hold_sec').value):
+                        debug_message = (
+                            f"APPROACH deep visible fallback area={tracking_area:.0f} err_x={error_x:.1f} bottom={ball_detection.bbox_bottom_y:.1f} "
+                            f"recent_center={(now - self.last_ball_centered_time):.2f}s -> BALL_POSSESSION"
                         )
                         self.transition(self.BALL_POSSESSION)
                 else:
