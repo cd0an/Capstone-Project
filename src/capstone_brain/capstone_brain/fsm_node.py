@@ -107,9 +107,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_near_center_exit_threshold_px', 45.0)
         self.declare_parameter('ball_close_steer_band_px', 150.0)
         self.declare_parameter('ball_close_center_area', 4500.0)
-        self.declare_parameter('ball_chase_crawl_threshold_px', 120.0)
-        self.declare_parameter('ball_chase_crawl_speed', 0.03)
-        self.declare_parameter('ball_chase_creep_turn_speed', 0.12)
+        self.declare_parameter('ball_chase_crawl_threshold_px', 170.0)
+        self.declare_parameter('ball_chase_crawl_speed', 0.05)
+        self.declare_parameter('ball_chase_creep_turn_speed', 0.16)
         self.declare_parameter('ball_close_steer_speed', 0.03)
         self.declare_parameter('ball_close_steer_turn_speed', 0.18)
         self.declare_parameter('ball_near_steer_turn_speed', 0.22)
@@ -410,7 +410,7 @@ class SoccerFSMNode(Node):
                     and not centered_enough
                     and abs(error_x) <= close_steer_band
                 )
-                general_creep_mode = (not close_area_mode) and (not centered_enough) and abs(error_x) <= general_steer_band
+                general_creep_mode = (not centered_enough) and abs(error_x) <= general_steer_band
                 creep_mode = close_creep_mode or general_creep_mode
 
                 if centered_enough:

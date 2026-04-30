@@ -23,7 +23,7 @@ class DetectorNode(Node):
         self.declare_parameter('frame_width', 640)
         self.declare_parameter('frame_height', 480)
         self.declare_parameter('imgsz', 512)
-        self.declare_parameter('confidence_threshold', 0.3)
+        self.declare_parameter('confidence_threshold', 0.4)
         self.declare_parameter('publish_topic', '/soccer/detections')
         self.declare_parameter('show_window', True)
         self.declare_parameter('window_name', 'TurboPi Live Vision')
@@ -32,9 +32,9 @@ class DetectorNode(Node):
         self.declare_parameter('ball_bottom_bias', 0.25)
         self.declare_parameter('ball_center_bias', 0.35)
         self.declare_parameter('ball_edge_margin_px', 50.0)
-        self.declare_parameter('ball_edge_penalty', 0.35)
-        self.declare_parameter('ball_square_min_ratio', 0.30)
-        self.declare_parameter('ball_square_score_floor', 0.20)
+        self.declare_parameter('ball_edge_penalty', 0.25)
+        self.declare_parameter('ball_square_min_ratio', 0.35)
+        self.declare_parameter('ball_square_score_floor', 0.25)
         self.declare_parameter('ball_confidence_weight', 0.15)
 
         model_root = Path(get_package_share_directory('capstone_brain')) / 'models' / 'turbopi_ncnn_model'
