@@ -59,7 +59,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('startup_hold_sec', 4.0)
         self.declare_parameter('search_spin_on_sec', 0.08)
-        self.declare_parameter('search_spin_off_sec', 1.00)
+        self.declare_parameter('search_spin_off_sec', 1.40)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -79,7 +79,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 180.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 140.0)
         self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.0)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
@@ -255,7 +255,14 @@ class SoccerFSMNode(Node):
                 search_off = float(self.get_parameter('search_spin_off_sec').value)
                 search_cycle = search_on + search_off
                 if search_cycle > 0.0 and (state_elapsed % search_cycle) < search_on:
-                    twist.angular.z = turn_sign
+                    # Sweep back across the frame from the opposite side of the
+                    # last sighting instead of always spinning the same way.
+                    search_direction = 1.0
+                    if self.last_ball_error_x > 1.0:
+                        search_direction = -1.0
+                    elif self.last_ball_error_x < -1.0:
+                        search_direction = 1.0
+                    twist.angular.z = turn_sign * search_direction
 
         elif self.state == self.ALIGN_TO_BALL:
             self.publish_target('ball')
