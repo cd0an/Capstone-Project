@@ -70,13 +70,13 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_crawl_speed', 0.060)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('approach_drive_turn_hold_speed', 0.12)
-        self.declare_parameter('approach_curve_turn_breakaway_speed', 1.20)
-        self.declare_parameter('approach_curve_turn_hold_speed', 0.45)
-        self.declare_parameter('approach_curve_turn_stuck_breakaway_speed', 1.40)
-        self.declare_parameter('approach_curve_turn_stuck_hold_speed', 0.70)
+        self.declare_parameter('approach_curve_turn_breakaway_speed', 1.60)
+        self.declare_parameter('approach_curve_turn_hold_speed', 0.65)
+        self.declare_parameter('approach_curve_turn_stuck_breakaway_speed', 1.90)
+        self.declare_parameter('approach_curve_turn_stuck_hold_speed', 1.05)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('approach_turn_breakaway_duration_sec', 0.30)
-        self.declare_parameter('approach_curve_turn_breakaway_duration_sec', 0.50)
+        self.declare_parameter('approach_curve_turn_breakaway_duration_sec', 0.65)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('startup_hold_sec', 9.0)
         self.declare_parameter('search_spin_on_sec', 0.12)
@@ -811,6 +811,7 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 
 
