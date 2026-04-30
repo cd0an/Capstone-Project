@@ -120,6 +120,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_near_max_speed', 0.04)
         self.declare_parameter('ball_chase_max_speed', 0.10)
         self.declare_parameter('ball_far_turn_forward_speed', 0.03)
+        self.declare_parameter('ball_far_turn_forward_max_err_x', 220.0)
+        self.declare_parameter('ball_arc_heading_slowdown_err_x', 220.0)
+        self.declare_parameter('ball_arc_min_forward_scale', 0.30)
+        self.declare_parameter('ball_arc_pivot_err_x', 280.0)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
         self.declare_parameter('possession_turn_tolerance_px', 140.0)
@@ -410,29 +414,19 @@ class SoccerFSMNode(Node):
                 self.ball_blind_zone_since = None
                 self.ball_possession_release_since = None
 
-                close_steer_band = float(self.get_parameter('ball_close_steer_band_px').value)
-                general_steer_band = float(self.get_parameter('ball_chase_crawl_threshold_px').value)
-                close_creep_mode = (
-                    close_area_mode
-                    and not near_ball_mode
-                    and not centered_enough
-                    and abs(error_x) <= close_steer_band
+                area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
+                base_forward = self.proportional(
+                    area_error,
+                    0.000006,
+                    float(self.get_parameter('ball_chase_max_speed').value),
                 )
-                general_creep_mode = (not centered_enough) and abs(error_x) <= general_steer_band
-                creep_mode = close_creep_mode or general_creep_mode
+                if near_ball_mode:
+                    base_forward = min(base_forward, float(self.get_parameter('ball_near_max_speed').value))
+                elif close_area_mode:
+                    base_forward = min(base_forward, float(self.get_parameter('ball_close_max_speed').value))
 
                 if centered_enough:
                     twist.angular.z = 0.0
-                    area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
-                    base_forward = self.proportional(
-                        area_error,
-                        0.000006,
-                        float(self.get_parameter('ball_chase_max_speed').value),
-                    )
-                    if near_ball_mode:
-                        base_forward = min(base_forward, float(self.get_parameter('ball_near_max_speed').value))
-                    elif close_area_mode:
-                        base_forward = min(base_forward, float(self.get_parameter('ball_close_max_speed').value))
                     if close_area_mode:
                         align_scale = max(0.25, 1.0 - (abs(error_x) / max(exit_threshold, 1.0)))
                         base_forward *= align_scale
@@ -441,13 +435,12 @@ class SoccerFSMNode(Node):
                     self.approach_turn_reference_error = None
                     self.approach_turn_stuck_since = None
                     self.approach_turn_stuck_active = False
-                elif creep_mode:
-                    creep_speed = float(self.get_parameter('ball_close_steer_speed').value) if close_area_mode else float(self.get_parameter('ball_chase_crawl_speed').value)
+                    creep_mode = False
+                else:
                     if near_ball_mode:
                         turn_limit = float(self.get_parameter('ball_near_steer_turn_speed').value)
                     else:
-                        turn_limit = float(self.get_parameter('ball_close_steer_turn_speed').value) if close_area_mode else float(self.get_parameter('ball_chase_creep_turn_speed').value)
-                    twist.linear.x = forward_sign * creep_speed
+                        turn_limit = float(self.get_parameter('ball_close_steer_turn_speed').value) if close_area_mode else float(self.get_parameter('ball_chase_max_turn_speed').value)
                     twist.angular.z = self.biased_turn(
                         error_x,
                         float(self.get_parameter('ball_chase_turn_gain').value),
@@ -456,19 +449,25 @@ class SoccerFSMNode(Node):
                     )
                     twist.angular.z *= turn_sign
                     self.last_approach_was_straight = False
-                    self.approach_turn_reference_error = None
-                    self.approach_turn_stuck_since = None
-                    self.approach_turn_stuck_active = False
-                else:
-                    twist.linear.x = 0.0 if close_area_mode else (forward_sign * float(self.get_parameter('ball_far_turn_forward_speed').value))
-                    twist.angular.z = self.biased_turn(
-                        error_x,
-                        float(self.get_parameter('ball_chase_turn_gain').value),
-                        float(self.get_parameter('ball_close_max_turn_speed').value) if close_area_mode else float(self.get_parameter('ball_chase_max_turn_speed').value),
-                        float(self.get_parameter('min_chase_turn_speed').value),
-                    )
-                    twist.angular.z *= turn_sign
-                    self.last_approach_was_straight = False
+
+                    if close_area_mode:
+                        heading_scale = max(0.0, 1.0 - (abs(error_x) / max(exit_threshold, 1.0)))
+                    else:
+                        heading_scale = max(
+                            float(self.get_parameter('ball_arc_min_forward_scale').value),
+                            1.0 - (abs(error_x) / max(float(self.get_parameter('ball_arc_heading_slowdown_err_x').value), 1.0)),
+                        )
+                        if abs(error_x) >= float(self.get_parameter('ball_arc_pivot_err_x').value):
+                            heading_scale = 0.0
+
+                    twist.linear.x = forward_sign * (base_forward * heading_scale)
+                    if (
+                        not close_area_mode
+                        and not near_ball_mode
+                        and 0.0 < abs(error_x) <= float(self.get_parameter('ball_far_turn_forward_max_err_x').value)
+                        and 0.0 < abs(twist.linear.x) < float(self.get_parameter('ball_far_turn_forward_speed').value)
+                    ):
+                        twist.linear.x = forward_sign * float(self.get_parameter('ball_far_turn_forward_speed').value)
 
                     stuck_delta = float(self.get_parameter('approach_turn_stuck_err_delta_px').value)
                     stuck_hold = float(self.get_parameter('approach_turn_stuck_hold_sec').value)
@@ -485,6 +484,8 @@ class SoccerFSMNode(Node):
 
                     if self.approach_turn_stuck_active:
                         twist.linear.x = forward_sign * float(self.get_parameter('approach_turn_stuck_crawl_speed').value)
+
+                    creep_mode = abs(twist.linear.x) > 1e-6
 
                 if (
                     self.latest_status.possession_candidate
