@@ -39,9 +39,9 @@ class TrackingNode(Node):
         self.declare_parameter('scan_step', 4.0)
         self.declare_parameter('center_tolerance_px', 55.0)
         self.declare_parameter('close_area_ball', 50000.0)
-        self.declare_parameter('possession_center_tolerance_px', 120.0)
-        self.declare_parameter('possession_row_px', 380.0)
-        self.declare_parameter('possession_min_area', 12000.0)
+        self.declare_parameter('possession_center_tolerance_px', 150.0)
+        self.declare_parameter('possession_row_px', 330.0)
+        self.declare_parameter('possession_min_area', 6000.0)
         self.declare_parameter('stale_timeout_sec', 1.0)
         self.declare_parameter('hold_last_target_timeout_sec', 1.8)
         self.declare_parameter('tracking_deadband_px', 35.0)
@@ -307,3 +307,4 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
