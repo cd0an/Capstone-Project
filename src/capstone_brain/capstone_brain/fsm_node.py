@@ -64,6 +64,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_hold_sec', 0.8)
         self.declare_parameter('approach_turn_stuck_breakaway_speed', 3.00)
         self.declare_parameter('approach_turn_stuck_hold_speed', 1.05)
+        self.declare_parameter('approach_turn_stuck_crawl_speed', 0.035)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
@@ -473,6 +474,9 @@ class SoccerFSMNode(Node):
                         self.approach_turn_stuck_active = False
                     elif self.approach_turn_stuck_since is not None and (now - self.approach_turn_stuck_since) >= stuck_hold:
                         self.approach_turn_stuck_active = True
+
+                    if self.approach_turn_stuck_active and close_area_mode:
+                        twist.linear.x = forward_sign * float(self.get_parameter('approach_turn_stuck_crawl_speed').value)
 
                 if (
                     self.latest_status.possession_candidate
