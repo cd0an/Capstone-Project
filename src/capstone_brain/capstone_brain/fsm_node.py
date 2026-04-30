@@ -50,6 +50,12 @@ class SoccerFSMNode(Node):
         self.declare_parameter('min_effective_turn_speed', 0.10)
         self.declare_parameter('linear_breakaway_speed', 0.26)
         self.declare_parameter('linear_hold_speed', 0.18)
+        self.declare_parameter('approach_linear_breakaway_speed', 0.20)
+        self.declare_parameter('approach_linear_hold_speed', 0.14)
+        self.declare_parameter('approach_close_linear_breakaway_speed', 0.12)
+        self.declare_parameter('approach_close_linear_hold_speed', 0.08)
+        self.declare_parameter('approach_near_linear_breakaway_speed', 0.10)
+        self.declare_parameter('approach_near_linear_hold_speed', 0.06)
         self.declare_parameter('angular_breakaway_speed', 2.60)
         self.declare_parameter('angular_hold_speed', 1.20)
         self.declare_parameter('approach_turn_breakaway_speed', 1.50)
@@ -148,6 +154,8 @@ class SoccerFSMNode(Node):
         self.last_approach_was_straight = False
         self.ball_possession_release_since = None
         self.approach_forward_latched = False
+        self.approach_close_area_mode = False
+        self.approach_near_ball_mode = False
         self.approach_turn_reference_error = None
         self.approach_turn_stuck_since = None
         self.approach_turn_stuck_active = False
@@ -208,6 +216,8 @@ class SoccerFSMNode(Node):
         self.last_approach_was_straight = False
         self.ball_possession_release_since = None
         self.approach_forward_latched = False
+        self.approach_close_area_mode = False
+        self.approach_near_ball_mode = False
         self.approach_turn_reference_error = None
         self.approach_turn_stuck_since = None
         self.approach_turn_stuck_active = False
@@ -377,6 +387,8 @@ class SoccerFSMNode(Node):
                 enter_threshold = float(self.get_parameter('ball_close_center_threshold_px').value) if close_area_mode else float(self.get_parameter('ball_chase_center_threshold_px').value)
                 exit_threshold = float(self.get_parameter('ball_close_center_exit_threshold_px').value) if close_area_mode else float(self.get_parameter('ball_chase_center_exit_threshold_px').value)
                 near_ball_mode = close_area_mode and (error_y <= float(self.get_parameter('ball_near_err_y_threshold_px').value))
+                self.approach_close_area_mode = close_area_mode
+                self.approach_near_ball_mode = near_ball_mode
                 if near_ball_mode:
                     enter_threshold = min(enter_threshold, float(self.get_parameter('ball_near_center_threshold_px').value))
                     exit_threshold = min(exit_threshold, float(self.get_parameter('ball_near_center_exit_threshold_px').value))
@@ -576,11 +588,23 @@ class SoccerFSMNode(Node):
                 self.last_linear_x,
                 float(self.get_parameter('max_linear_step').value),
             )
+            linear_breakaway = float(self.get_parameter('linear_breakaway_speed').value)
+            linear_hold = float(self.get_parameter('linear_hold_speed').value)
+            if self.state == self.APPROACH_BALL and abs(twist.angular.z) < 1e-6:
+                if self.approach_near_ball_mode:
+                    linear_breakaway = float(self.get_parameter('approach_near_linear_breakaway_speed').value)
+                    linear_hold = float(self.get_parameter('approach_near_linear_hold_speed').value)
+                elif self.approach_close_area_mode:
+                    linear_breakaway = float(self.get_parameter('approach_close_linear_breakaway_speed').value)
+                    linear_hold = float(self.get_parameter('approach_close_linear_hold_speed').value)
+                else:
+                    linear_breakaway = float(self.get_parameter('approach_linear_breakaway_speed').value)
+                    linear_hold = float(self.get_parameter('approach_linear_hold_speed').value)
             twist.linear.x = self.enforce_axis_motion_profile(
                 ramped_linear_x,
                 now,
-                float(self.get_parameter('linear_breakaway_speed').value),
-                float(self.get_parameter('linear_hold_speed').value),
+                linear_breakaway,
+                linear_hold,
                 'linear_active_since',
             )
 
