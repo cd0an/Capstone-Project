@@ -161,12 +161,13 @@ class SoccerFSMNode(Node):
         self.declare_parameter('visible_possession_deep_min_area', 13500.0)
         self.declare_parameter('visible_possession_deep_max_err_x', 35.0)
         self.declare_parameter('visible_possession_deep_recent_center_sec', 0.22)
-        self.declare_parameter('visible_possession_close_min_area', 15000.0)
-        self.declare_parameter('visible_possession_close_max_err_x', 12.0)
+        self.declare_parameter('visible_possession_close_min_area', 7000.0)
+        self.declare_parameter('visible_possession_close_max_err_x', 45.0)
+        self.declare_parameter('visible_possession_close_max_err_y', 30.0)
         self.declare_parameter('visible_possession_close_recent_center_sec', 0.20)
-        self.declare_parameter('approach_plow_brake_min_area', 9000.0)
-        self.declare_parameter('approach_plow_brake_max_err_x', 25.0)
-        self.declare_parameter('approach_plow_brake_max_err_y', 20.0)
+        self.declare_parameter('approach_plow_brake_min_area', 6500.0)
+        self.declare_parameter('approach_plow_brake_max_err_x', 45.0)
+        self.declare_parameter('approach_plow_brake_max_err_y', 30.0)
         self.declare_parameter('approach_plow_brake_recent_center_sec', 0.30)
         self.declare_parameter('approach_plow_brake_speed', 0.0)
 
@@ -611,8 +612,9 @@ class SoccerFSMNode(Node):
                     close_area_mode
                     and near_ball_mode
                     and tracking_area >= float(self.get_parameter('visible_possession_close_min_area').value)
+                    and centered_enough
                     and abs(error_x) <= float(self.get_parameter('visible_possession_close_max_err_x').value)
-                    and (now - self.last_ball_centered_time) <= float(self.get_parameter('visible_possession_close_recent_center_sec').value)
+                    and error_y <= float(self.get_parameter('visible_possession_close_max_err_y').value)
                 )
                 if visible_possession_ready or close_visible_ready or deep_visible_ready:
                     twist.linear.x = 0.0
