@@ -52,11 +52,11 @@ class SoccerFSMNode(Node):
         self.declare_parameter('linear_hold_speed', 0.18)
         self.declare_parameter('angular_breakaway_speed', 2.63)
         self.declare_parameter('angular_hold_speed', 1.20)
-        self.declare_parameter('chase_angular_hold_speed', 0.25)
+        self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_spin_on_sec', 0.02)
-        self.declare_parameter('search_spin_off_sec', 0.70)
+        self.declare_parameter('search_spin_on_sec', 0.03)
+        self.declare_parameter('search_spin_off_sec', 0.35)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -67,7 +67,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('lost_ball_forward_speed', 0.0)
         self.declare_parameter('lost_ball_turn_gain', 0.0)
         self.declare_parameter('ball_align_turn_gain', 0.015)
-        self.declare_parameter('ball_chase_turn_gain', 0.0045)
+        self.declare_parameter('ball_chase_turn_gain', 0.0030)
         self.declare_parameter('goal_align_turn_gain', 0.015)
         self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
@@ -75,9 +75,11 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
-        self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 100.0)
-        self.declare_parameter('ball_chase_max_turn_speed', 0.35)
+        self.declare_parameter('min_chase_turn_speed', 0.10)
+        self.declare_parameter('ball_chase_center_threshold_px', 140.0)
+        self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
+        self.declare_parameter('ball_chase_crawl_speed', 0.12)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.22)
         self.declare_parameter('ball_chase_max_speed', 0.20)
 
         self.state = self.SEARCH_BALL
@@ -297,6 +299,8 @@ class SoccerFSMNode(Node):
                         0.000006,
                         float(self.get_parameter('ball_chase_max_speed').value),
                     )
+                elif abs(error_x) < float(self.get_parameter('ball_chase_crawl_threshold_px').value):
+                    twist.linear.x = forward_sign * float(self.get_parameter('ball_chase_crawl_speed').value)
                 else:
                     twist.linear.x = 0.0
                 if self.latest_status.in_range:
