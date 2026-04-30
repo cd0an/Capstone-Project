@@ -54,6 +54,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('angular_hold_speed', 1.20)
         self.declare_parameter('approach_turn_breakaway_speed', 1.50)
         self.declare_parameter('approach_turn_hold_speed', 0.45)
+        self.declare_parameter('approach_turn_stuck_err_delta_px', 12.0)
+        self.declare_parameter('approach_turn_stuck_hold_sec', 0.8)
+        self.declare_parameter('approach_turn_stuck_breakaway_speed', 2.20)
+        self.declare_parameter('approach_turn_stuck_hold_speed', 0.75)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
@@ -117,6 +121,9 @@ class SoccerFSMNode(Node):
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
         self.ball_possession_release_since = None
+        self.approach_turn_reference_error = None
+        self.approach_turn_stuck_since = None
+        self.approach_turn_stuck_active = False
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -169,6 +176,12 @@ class SoccerFSMNode(Node):
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
         self.ball_possession_release_since = None
+        self.approach_turn_reference_error = None
+        self.approach_turn_stuck_since = None
+        self.approach_turn_stuck_active = False
+        self.approach_turn_reference_error = None
+        self.approach_turn_stuck_since = None
+        self.approach_turn_stuck_active = False
 
     def transition(self, new_state):
         if new_state != self.state:
@@ -342,6 +355,9 @@ class SoccerFSMNode(Node):
                         float(self.get_parameter('ball_chase_max_speed').value),
                     )
                     self.last_approach_was_straight = True
+                    self.approach_turn_reference_error = None
+                    self.approach_turn_stuck_since = None
+                    self.approach_turn_stuck_active = False
                 else:
                     twist.linear.x = 0.0
                     twist.angular.z = self.biased_turn(
@@ -352,6 +368,19 @@ class SoccerFSMNode(Node):
                     )
                     twist.angular.z *= turn_sign
                     self.last_approach_was_straight = False
+
+                    stuck_delta = float(self.get_parameter('approach_turn_stuck_err_delta_px').value)
+                    stuck_hold = float(self.get_parameter('approach_turn_stuck_hold_sec').value)
+                    if (
+                        self.approach_turn_reference_error is None
+                        or (self.approach_turn_reference_error * error_x) < 0.0
+                        or abs(error_x - self.approach_turn_reference_error) > stuck_delta
+                    ):
+                        self.approach_turn_reference_error = error_x
+                        self.approach_turn_stuck_since = now
+                        self.approach_turn_stuck_active = False
+                    elif self.approach_turn_stuck_since is not None and (now - self.approach_turn_stuck_since) >= stuck_hold:
+                        self.approach_turn_stuck_active = True
 
                 if (
                     self.latest_status.possession_candidate
@@ -370,7 +399,7 @@ class SoccerFSMNode(Node):
                     f"close={int(close_area_mode)} thr={center_threshold:.0f} centered={int(centered_enough)} cand={int(self.latest_status.possession_candidate)} "
                     f"cand_stable={self.candidate_stable_since is not None} "
                     f"armed={int(self.last_possession_candidate_time > 0.0 and (now - self.last_possession_candidate_time) <= float(self.get_parameter('blind_zone_capture_timeout_sec').value))} "
-                    f"straight={int(self.last_approach_was_straight)} vx={twist.linear.x:.3f} wz={twist.angular.z:.3f}"
+                    f"straight={int(self.last_approach_was_straight)} stuck={int(self.approach_turn_stuck_active)} vx={twist.linear.x:.3f} wz={twist.angular.z:.3f}"
                 )
             else:
                 candidate_recent = (
@@ -488,11 +517,16 @@ class SoccerFSMNode(Node):
                     'angular_active_since',
                 )
             elif self.state == self.APPROACH_BALL and abs(twist.linear.x) < 1e-6:
+                breakaway_speed = float(self.get_parameter('approach_turn_breakaway_speed').value)
+                hold_speed = float(self.get_parameter('approach_turn_hold_speed').value)
+                if self.approach_turn_stuck_active:
+                    breakaway_speed = float(self.get_parameter('approach_turn_stuck_breakaway_speed').value)
+                    hold_speed = float(self.get_parameter('approach_turn_stuck_hold_speed').value)
                 twist.angular.z = self.enforce_axis_motion_profile(
                     ramped_angular_z,
                     now,
-                    float(self.get_parameter('approach_turn_breakaway_speed').value),
-                    float(self.get_parameter('approach_turn_hold_speed').value),
+                    breakaway_speed,
+                    hold_speed,
                     'angular_active_since',
                 )
             else:
