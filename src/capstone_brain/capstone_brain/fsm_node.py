@@ -384,7 +384,12 @@ class SoccerFSMNode(Node):
 
                 close_steer_band = float(self.get_parameter('ball_close_steer_band_px').value)
                 general_steer_band = float(self.get_parameter('ball_chase_crawl_threshold_px').value)
-                close_creep_mode = close_area_mode and not centered_enough and abs(error_x) <= close_steer_band
+                close_creep_mode = (
+                    close_area_mode
+                    and not near_ball_mode
+                    and not centered_enough
+                    and abs(error_x) <= close_steer_band
+                )
                 general_creep_mode = (not close_area_mode) and (not centered_enough) and abs(error_x) <= general_steer_band
                 creep_mode = close_creep_mode or general_creep_mode
 
