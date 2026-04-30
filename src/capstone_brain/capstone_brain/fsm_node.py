@@ -67,6 +67,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_hold_speed', 1.05)
         self.declare_parameter('approach_turn_stuck_crawl_speed', 0.015)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
+        self.declare_parameter('approach_drive_turn_hold_speed', 0.12)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('approach_turn_breakaway_duration_sec', 0.22)
         self.declare_parameter('ball_area_target', 50000.0)
@@ -90,7 +91,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('lost_ball_forward_speed', 0.0)
         self.declare_parameter('lost_ball_turn_gain', 0.0)
         self.declare_parameter('ball_align_turn_gain', 0.015)
-        self.declare_parameter('ball_chase_turn_gain', 0.0028)
+        self.declare_parameter('ball_chase_turn_gain', 0.0034)
         self.declare_parameter('goal_align_turn_gain', 0.015)
         self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
@@ -119,16 +120,16 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_close_steer_speed', 0.02)
         self.declare_parameter('ball_close_steer_turn_speed', 0.20)
         self.declare_parameter('ball_near_steer_turn_speed', 0.24)
-        self.declare_parameter('ball_chase_max_turn_speed', 0.18)
+        self.declare_parameter('ball_chase_max_turn_speed', 0.24)
         self.declare_parameter('ball_close_max_turn_speed', 0.22)
         self.declare_parameter('ball_close_max_speed', 0.07)
         self.declare_parameter('ball_near_max_speed', 0.04)
         self.declare_parameter('ball_chase_max_speed', 0.10)
-        self.declare_parameter('ball_far_turn_forward_speed', 0.03)
-        self.declare_parameter('ball_far_turn_forward_max_err_x', 200.0)
-        self.declare_parameter('ball_arc_heading_slowdown_err_x', 180.0)
-        self.declare_parameter('ball_arc_min_forward_scale', 0.20)
-        self.declare_parameter('ball_arc_pivot_err_x', 300.0)
+        self.declare_parameter('ball_far_turn_forward_speed', 0.02)
+        self.declare_parameter('ball_far_turn_forward_max_err_x', 160.0)
+        self.declare_parameter('ball_arc_heading_slowdown_err_x', 135.0)
+        self.declare_parameter('ball_arc_min_forward_scale', 0.05)
+        self.declare_parameter('ball_arc_pivot_err_x', 420.0)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
         self.declare_parameter('possession_turn_tolerance_px', 180.0)
@@ -138,12 +139,12 @@ class SoccerFSMNode(Node):
         self.declare_parameter('visible_possession_confirm_hold_sec', 0.05)
         self.declare_parameter('visible_possession_confirm_max_err_x', 180.0)
         self.declare_parameter('visible_possession_deep_bottom_px', 470.0)
-        self.declare_parameter('visible_possession_deep_min_area', 11000.0)
-        self.declare_parameter('visible_possession_deep_max_err_x', 180.0)
-        self.declare_parameter('visible_possession_deep_recent_center_sec', 0.45)
-        self.declare_parameter('visible_possession_close_min_area', 9000.0)
-        self.declare_parameter('visible_possession_close_max_err_x', 180.0)
-        self.declare_parameter('visible_possession_close_recent_center_sec', 1.0)
+        self.declare_parameter('visible_possession_deep_min_area', 13500.0)
+        self.declare_parameter('visible_possession_deep_max_err_x', 110.0)
+        self.declare_parameter('visible_possession_deep_recent_center_sec', 0.30)
+        self.declare_parameter('visible_possession_close_min_area', 15000.0)
+        self.declare_parameter('visible_possession_close_max_err_x', 35.0)
+        self.declare_parameter('visible_possession_close_recent_center_sec', 0.30)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -458,10 +459,31 @@ class SoccerFSMNode(Node):
                     base_forward = min(base_forward, float(self.get_parameter('ball_close_max_speed').value))
 
                 if centered_enough:
-                    twist.angular.z = 0.0
-                    if close_area_mode:
+                    center_hold_turn_limit = 0.09
+                    center_hold_min_err = enter_threshold * 0.35
+                    if near_ball_mode:
+                        center_hold_turn_limit = min(float(self.get_parameter('ball_near_steer_turn_speed').value), 0.10)
+                    elif close_area_mode:
+                        center_hold_turn_limit = min(float(self.get_parameter('ball_close_steer_turn_speed').value), 0.09)
+
+                    if abs(error_x) >= center_hold_min_err:
+                        twist.angular.z = self.biased_turn(
+                            error_x,
+                            float(self.get_parameter('ball_chase_turn_gain').value) * 0.75,
+                            center_hold_turn_limit,
+                            0.0,
+                        )
+                        twist.angular.z *= turn_sign
+                    else:
+                        twist.angular.z = 0.0
+
+                    if near_ball_mode:
+                        align_scale = max(0.20, 1.0 - (abs(error_x) / max(exit_threshold, 1.0)))
+                    elif close_area_mode:
                         align_scale = max(0.25, 1.0 - (abs(error_x) / max(exit_threshold, 1.0)))
-                        base_forward *= align_scale
+                    else:
+                        align_scale = max(0.40, 1.0 - 0.75 * (abs(error_x) / max(exit_threshold, 1.0)))
+                    base_forward *= align_scale
                     twist.linear.x = forward_sign * base_forward
                     self.last_approach_was_straight = True
                     self.approach_turn_reference_error = None
@@ -719,6 +741,8 @@ class SoccerFSMNode(Node):
                 )
             else:
                 hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
+                if self.state == self.APPROACH_BALL and not self.approach_turn_stuck_active:
+                    hold_floor = float(self.get_parameter('approach_drive_turn_hold_speed').value)
                 magnitude = max(abs(ramped_angular_z), hold_floor)
                 twist.angular.z = magnitude if ramped_angular_z > 0.0 else -magnitude
 
