@@ -67,15 +67,16 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_hold_sec', 0.8)
         self.declare_parameter('approach_turn_stuck_breakaway_speed', 3.00)
         self.declare_parameter('approach_turn_stuck_hold_speed', 1.05)
-        self.declare_parameter('approach_turn_stuck_crawl_speed', 0.015)
+        self.declare_parameter('approach_turn_stuck_crawl_speed', 0.025)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('approach_drive_turn_hold_speed', 0.12)
-        self.declare_parameter('approach_curve_turn_breakaway_speed', 0.55)
-        self.declare_parameter('approach_curve_turn_hold_speed', 0.24)
-        self.declare_parameter('approach_curve_turn_stuck_breakaway_speed', 0.75)
-        self.declare_parameter('approach_curve_turn_stuck_hold_speed', 0.32)
+        self.declare_parameter('approach_curve_turn_breakaway_speed', 0.95)
+        self.declare_parameter('approach_curve_turn_hold_speed', 0.34)
+        self.declare_parameter('approach_curve_turn_stuck_breakaway_speed', 1.15)
+        self.declare_parameter('approach_curve_turn_stuck_hold_speed', 0.55)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
-        self.declare_parameter('approach_turn_breakaway_duration_sec', 0.22)
+        self.declare_parameter('approach_turn_breakaway_duration_sec', 0.30)
+        self.declare_parameter('approach_curve_turn_breakaway_duration_sec', 0.40)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('startup_hold_sec', 9.0)
         self.declare_parameter('search_spin_on_sec', 0.12)
@@ -766,7 +767,7 @@ class SoccerFSMNode(Node):
                         breakaway_speed,
                         hold_speed,
                         'angular_active_since',
-                        float(self.get_parameter('approach_turn_breakaway_duration_sec').value),
+                        float(self.get_parameter('approach_curve_turn_breakaway_duration_sec').value),
                     )
                 else:
                     hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
