@@ -40,7 +40,7 @@ class TrackingNode(Node):
         self.declare_parameter('scan_step', 4.0)
         self.declare_parameter('center_tolerance_px', 55.0)
         self.declare_parameter('close_area_ball', 50000.0)
-        self.declare_parameter('possession_center_tolerance_px', 60.0)
+        self.declare_parameter('possession_center_tolerance_px', 180.0)
         self.declare_parameter('possession_row_px', 435.0)
         self.declare_parameter('possession_min_area', 9000.0)
         self.declare_parameter('stale_timeout_sec', 1.0)

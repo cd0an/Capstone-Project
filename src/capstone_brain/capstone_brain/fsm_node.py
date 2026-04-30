@@ -65,7 +65,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_hold_sec', 0.8)
         self.declare_parameter('approach_turn_stuck_breakaway_speed', 3.00)
         self.declare_parameter('approach_turn_stuck_hold_speed', 1.05)
-        self.declare_parameter('approach_turn_stuck_crawl_speed', 0.035)
+        self.declare_parameter('approach_turn_stuck_crawl_speed', 0.015)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('approach_turn_breakaway_duration_sec', 0.22)
@@ -131,19 +131,19 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_arc_pivot_err_x', 300.0)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
-        self.declare_parameter('possession_turn_tolerance_px', 140.0)
-        self.declare_parameter('possession_max_turn_cmd', 0.14)
-        self.declare_parameter('possession_confirm_min_area', 12000.0)
-        self.declare_parameter('possession_confirm_center_tolerance_px', 90.0)
-        self.declare_parameter('visible_possession_confirm_hold_sec', 0.15)
-        self.declare_parameter('visible_possession_confirm_max_err_x', 45.0)
+        self.declare_parameter('possession_turn_tolerance_px', 180.0)
+        self.declare_parameter('possession_max_turn_cmd', 0.25)
+        self.declare_parameter('possession_confirm_min_area', 9000.0)
+        self.declare_parameter('possession_confirm_center_tolerance_px', 180.0)
+        self.declare_parameter('visible_possession_confirm_hold_sec', 0.05)
+        self.declare_parameter('visible_possession_confirm_max_err_x', 180.0)
         self.declare_parameter('visible_possession_deep_bottom_px', 470.0)
         self.declare_parameter('visible_possession_deep_min_area', 11000.0)
         self.declare_parameter('visible_possession_deep_max_err_x', 180.0)
         self.declare_parameter('visible_possession_deep_recent_center_sec', 0.45)
-        self.declare_parameter('visible_possession_close_min_area', 15000.0)
-        self.declare_parameter('visible_possession_close_max_err_x', 45.0)
-        self.declare_parameter('visible_possession_close_recent_center_sec', 0.35)
+        self.declare_parameter('visible_possession_close_min_area', 9000.0)
+        self.declare_parameter('visible_possession_close_max_err_x', 180.0)
+        self.declare_parameter('visible_possession_close_recent_center_sec', 1.0)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -687,6 +687,9 @@ class SoccerFSMNode(Node):
             twist.angular.z = 0.0
             self.angular_active_since = None
         else:
+            if self.last_angular_z * scaled_angular_z < 0.0:
+                self.last_angular_z = 0.0
+                self.angular_active_since = None
             ramped_angular_z = self.limit_rate(
                 scaled_angular_z,
                 self.last_angular_z,
