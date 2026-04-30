@@ -63,6 +63,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
+        self.declare_parameter('ball_possession_settle_sec', 0.20)
+        self.declare_parameter('ball_possession_settle_speed', 0.10)
         self.declare_parameter('kick_duration_sec', 0.45)
         self.declare_parameter('goal_search_timeout_sec', 5.0)
         self.declare_parameter('ball_lost_timeout_sec', 1.2)
@@ -79,7 +81,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 140.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 100.0)
         self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.0)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
@@ -366,6 +368,11 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('HOLD')
             self.publish_rgb(0, 255, 0)
+            # Let the robot carry the ball into the plow for a brief settle
+            # window instead of stopping abruptly and letting momentum roll it
+            # back out.
+            if state_elapsed < float(self.get_parameter('ball_possession_settle_sec').value):
+                twist.linear.x = forward_sign * float(self.get_parameter('ball_possession_settle_speed').value)
             if (
                 state_elapsed >= float(self.get_parameter('ball_possession_hold_sec').value)
                 and self.latest_status.target_class == 'ball'
@@ -483,3 +490,4 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
