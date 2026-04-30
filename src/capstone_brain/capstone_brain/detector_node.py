@@ -7,6 +7,7 @@ from ament_index_python.packages import get_package_share_directory
 from capstone_interfaces.msg import SoccerDetection, SoccerDetections
 from cv_bridge import CvBridge
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
 from ultralytics import YOLO
@@ -61,11 +62,12 @@ class DetectorNode(Node):
         self.latest_frame = None
         self.received_image_count = 0
         self.image_timeout_warned = False
+        self.start_time_sec = self.get_clock().now().nanoseconds / 1e9
         self.create_subscription(
             Image,
             str(self.get_parameter('image_topic').value),
             self.image_callback,
-            1,
+            qos_profile_sensor_data,
         )
 
         self.last_primary_by_class = {}
@@ -130,7 +132,8 @@ class DetectorNode(Node):
 
     def process_frame(self):
         if self.latest_frame is None:
-            if not self.image_timeout_warned and (self.get_clock().now().nanoseconds / 1e9) >= 2.0:
+            now_sec = self.get_clock().now().nanoseconds / 1e9
+            if not self.image_timeout_warned and (now_sec - self.start_time_sec) >= 2.0:
                 self.image_timeout_warned = True
                 self.get_logger().warning(
                     f"No camera frames received on {self.get_parameter('image_topic').value}"

@@ -13,6 +13,7 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from ultralytics import YOLO
 
@@ -86,6 +87,7 @@ class PlowCalibratorNode(Node):
         self.last_print_time = 0.0
         self.latest_ball = None
         self.last_primary_ball = None
+        self.start_time_sec = self.get_clock().now().nanoseconds / 1e9
 
         output_csv = os.path.expanduser(str(self.get_parameter("output_csv").value))
         self.output_csv = os.path.abspath(output_csv)
@@ -106,7 +108,7 @@ class PlowCalibratorNode(Node):
             Image,
             str(self.get_parameter("image_topic").value),
             self.image_callback,
-            1,
+            qos_profile_sensor_data,
         )
 
         self.get_logger().info(f"Plow calibrator started with model at {model_root}")
@@ -426,7 +428,7 @@ class PlowCalibratorNode(Node):
         self.poll_keyboard()
         now = self.now_seconds()
         if self.latest_image is None:
-            if not self.image_timeout_warned and now >= 2.0:
+            if not self.image_timeout_warned and (now - self.start_time_sec) >= 2.0:
                 self.image_timeout_warned = True
                 self.get_logger().warning(
                     f"No camera frames received on {self.get_parameter('image_topic').value}"

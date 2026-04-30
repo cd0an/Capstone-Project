@@ -2,6 +2,7 @@ import cv2
 import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 
@@ -19,7 +20,7 @@ class CameraPublisherNode(Node):
         self.publisher = self.create_publisher(
             Image,
             str(self.get_parameter("publish_topic").value),
-            1,
+            qos_profile_sensor_data,
         )
 
         camera_index = int(self.get_parameter("camera_index").value)
