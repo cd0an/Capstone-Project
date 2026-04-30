@@ -123,11 +123,11 @@ class SoccerFSMNode(Node):
         self.declare_parameter('possession_turn_tolerance_px', 140.0)
         self.declare_parameter('possession_max_turn_cmd', 0.14)
         self.declare_parameter('possession_confirm_min_area', 12000.0)
-        self.declare_parameter('possession_confirm_max_err_y', 60.0)
-        self.declare_parameter('possession_confirm_center_tolerance_px', 120.0)
+        self.declare_parameter('possession_confirm_max_err_y', 40.0)
+        self.declare_parameter('possession_confirm_center_tolerance_px', 90.0)
         self.declare_parameter('visible_possession_confirm_hold_sec', 0.15)
-        self.declare_parameter('visible_possession_confirm_max_err_x', 45.0)
-        self.declare_parameter('visible_possession_confirm_max_err_y', 30.0)
+        self.declare_parameter('visible_possession_confirm_max_err_x', 30.0)
+        self.declare_parameter('visible_possession_confirm_max_err_y', 10.0)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
