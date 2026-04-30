@@ -27,9 +27,12 @@ class DetectorNode(Node):
         self.declare_parameter('publish_topic', '/soccer/detections')
         self.declare_parameter('show_window', True)
         self.declare_parameter('window_name', 'TurboPi Live Vision')
-        self.declare_parameter('ball_match_distance_px', 160.0)
-        self.declare_parameter('ball_track_bonus', 1.35)
+        self.declare_parameter('ball_match_distance_px', 220.0)
+        self.declare_parameter('ball_track_bonus', 1.75)
         self.declare_parameter('ball_bottom_bias', 0.25)
+        self.declare_parameter('ball_center_bias', 0.35)
+        self.declare_parameter('ball_edge_margin_px', 50.0)
+        self.declare_parameter('ball_edge_penalty', 0.35)
         self.declare_parameter('ball_square_min_ratio', 0.45)
         self.declare_parameter('ball_square_score_floor', 0.30)
         self.declare_parameter('ball_confidence_weight', 0.15)
@@ -84,6 +87,15 @@ class DetectorNode(Node):
 
         vertical_fraction = candidate['center_y'] / max(float(frame_height), 1.0)
         score *= 1.0 + float(self.get_parameter('ball_bottom_bias').value) * vertical_fraction
+
+        frame_center_x = float(frame_width) / 2.0
+        horizontal_fraction = min(1.0, abs(candidate['center_x'] - frame_center_x) / max(frame_center_x, 1.0))
+        score *= 1.0 + float(self.get_parameter('ball_center_bias').value) * (1.0 - horizontal_fraction)
+
+        edge_margin = float(self.get_parameter('ball_edge_margin_px').value)
+        edge_penalty = float(self.get_parameter('ball_edge_penalty').value)
+        if candidate['center_x'] <= edge_margin or candidate['center_x'] >= (float(frame_width) - edge_margin):
+            score *= edge_penalty
 
         # Confidence should only gently break ties. The model is too noisy to let
         # confidence dominate ball choice near the plow.
