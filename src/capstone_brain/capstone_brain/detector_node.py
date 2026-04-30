@@ -6,6 +6,7 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from capstone_interfaces.msg import SoccerDetection, SoccerDetections
 from rclpy.node import Node
+from sensor_msgs.msg import CompressedImage
 from ultralytics import YOLO
 
 
@@ -25,6 +26,8 @@ class DetectorNode(Node):
         self.declare_parameter('imgsz', 512)
         self.declare_parameter('confidence_threshold', 0.4)
         self.declare_parameter('publish_topic', '/soccer/detections')
+        self.declare_parameter('debug_image_topic', '/soccer/debug/annotated/compressed')
+        self.declare_parameter('publish_debug_image', True)
         self.declare_parameter('show_window', True)
         self.declare_parameter('window_name', 'TurboPi Live Vision')
         self.declare_parameter('ball_match_distance_px', 220.0)
@@ -46,6 +49,14 @@ class DetectorNode(Node):
             self.get_parameter('publish_topic').value,
             10,
         )
+        self.publish_debug_image = bool(self.get_parameter('publish_debug_image').value)
+        self.debug_image_publisher = None
+        if self.publish_debug_image:
+            self.debug_image_publisher = self.create_publisher(
+                CompressedImage,
+                self.get_parameter('debug_image_topic').value,
+                10,
+            )
 
         camera_index = int(self.get_parameter('camera_index').value)
         self.cap = cv2.VideoCapture(camera_index)
@@ -188,7 +199,34 @@ class DetectorNode(Node):
             new_primary_by_class[detection['class_name']] = detection
 
         self.last_primary_by_class = new_primary_by_class
+
+        primary_ball = primary_by_class.get('ball')
+        if primary_ball is not None:
+            x1 = int(round(primary_ball['center_x'] - primary_ball['width'] / 2.0))
+            y1 = int(round(primary_ball['center_y'] - primary_ball['height'] / 2.0))
+            x2 = int(round(primary_ball['center_x'] + primary_ball['width'] / 2.0))
+            y2 = int(round(primary_ball['center_y'] + primary_ball['height'] / 2.0))
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            cv2.putText(
+                annotated_frame,
+                'PRIMARY BALL',
+                (x1, max(20, y1 - 10)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
+                cv2.LINE_AA,
+            )
+
         self.publisher.publish(msg)
+        if self.debug_image_publisher is not None:
+            success_encode, encoded = cv2.imencode('.jpg', annotated_frame)
+            if success_encode:
+                image_msg = CompressedImage()
+                image_msg.header.stamp = msg.stamp
+                image_msg.format = 'jpeg'
+                image_msg.data = encoded.tobytes()
+                self.debug_image_publisher.publish(image_msg)
         if self.show_window:
             cv2.imshow(self.window_name, annotated_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):

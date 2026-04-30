@@ -11,6 +11,7 @@ import numpy as np
 import rclpy
 from capstone_interfaces.msg import SoccerDetections, TrackingStatus
 from rclpy.node import Node
+from sensor_msgs.msg import CompressedImage
 
 
 LABELS = {
@@ -37,8 +38,9 @@ class PlowCalibratorNode(Node):
         super().__init__("plow_calibrator")
         self.declare_parameter("detection_topic", "/soccer/detections")
         self.declare_parameter("status_topic", "/soccer/tracking_status")
+        self.declare_parameter("debug_image_topic", "/soccer/debug/annotated/compressed")
         self.declare_parameter("output_csv", "~/plow_calibration_samples.csv")
-        self.declare_parameter("print_period_sec", 0.25)
+        self.declare_parameter("print_period_sec", 1.0)
         self.declare_parameter("show_window", True)
         self.declare_parameter("window_name", "TurboPi Plow Calibrator")
         self.declare_parameter("display_width", 640)
@@ -48,6 +50,7 @@ class PlowCalibratorNode(Node):
 
         self.latest_status = TrackingStatus()
         self.latest_ball = None
+        self.latest_debug_frame = None
         self.last_print_time = 0.0
         self.show_window = bool(self.get_parameter("show_window").value)
         self.window_name = str(self.get_parameter("window_name").value)
@@ -77,6 +80,12 @@ class PlowCalibratorNode(Node):
             TrackingStatus,
             str(self.get_parameter("status_topic").value),
             self.status_callback,
+            10,
+        )
+        self.create_subscription(
+            CompressedImage,
+            str(self.get_parameter("debug_image_topic").value),
+            self.debug_image_callback,
             10,
         )
         self.timer = self.create_timer(0.05, self.control_loop)
@@ -132,6 +141,14 @@ class PlowCalibratorNode(Node):
     def status_callback(self, msg):
         self.latest_status = msg
 
+    def debug_image_callback(self, msg):
+        if not msg.data:
+            return
+        image_array = np.frombuffer(msg.data, dtype=np.uint8)
+        frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        if frame is not None:
+            self.latest_debug_frame = frame
+
     def now_seconds(self):
         return self.get_clock().now().nanoseconds / 1e9
 
@@ -170,7 +187,7 @@ class PlowCalibratorNode(Node):
     def print_current_state(self):
         row = self.current_sample()
         self.get_logger().info(
-            f"sample visible={row[2]} cand={row[3]} centered={row[4]} err_x={row[7]} err_y={row[8]} area={row[9]} bottom_y={row[11]}"
+            f"PRINT sample visible={row[2]} cand={row[3]} centered={row[4]} err_x={row[7]} err_y={row[8]} area={row[9]} bottom_y={row[11]}"
         )
 
     def poll_keyboard(self):
@@ -215,9 +232,13 @@ class PlowCalibratorNode(Node):
 
         status = self.latest_status
         ball = self.latest_ball
-        frame_width = int(status.frame_width) if int(status.frame_width) > 0 else int(self.get_parameter("display_width").value)
-        frame_height = int(status.frame_height) if int(status.frame_height) > 0 else int(self.get_parameter("display_height").value)
-        canvas = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+        if self.latest_debug_frame is not None:
+            canvas = self.latest_debug_frame.copy()
+            frame_height, frame_width = canvas.shape[:2]
+        else:
+            frame_width = int(status.frame_width) if int(status.frame_width) > 0 else int(self.get_parameter("display_width").value)
+            frame_height = int(status.frame_height) if int(status.frame_height) > 0 else int(self.get_parameter("display_height").value)
+            canvas = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
 
         center_x = frame_width // 2
         center_y = frame_height // 2
@@ -242,6 +263,7 @@ class PlowCalibratorNode(Node):
 
         text_lines = [
             "Hotkeys: o outside | n near_edge | i in_plow | d too_deep | p print | q quit",
+            "Green detector box = PRIMARY BALL selected by detector_node",
             f"visible={int(status.visible)} cand={int(status.possession_candidate)} centered={int(status.centered)} in_range={int(status.in_range)} stale={int(status.stale)}",
             f"err_x={float(status.error_x):.1f} err_y={float(status.error_y):.1f} area={float(status.area):.1f} conf={float(status.confidence):.3f}",
             f"bottom_y={'' if ball is None else f'{ball.bbox_bottom_y:.1f}'} center_x={'' if ball is None else f'{ball.center_x:.1f}'} center_y={'' if ball is None else f'{ball.center_y:.1f}'}",
