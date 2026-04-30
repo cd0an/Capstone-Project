@@ -306,62 +306,29 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('HOLD')
             self.publish_rgb(0, 255, 0)
-            if state_elapsed >= float(self.get_parameter('ball_possession_hold_sec').value):
-                self.transition(self.SEARCH_GOAL)
+            if (
+                self.latest_status.target_class == 'ball' and
+                not self.latest_status.visible and
+                self.latest_status.stale
+            ):
+                self.transition(self.RECOVER)
 
         elif self.state == self.SEARCH_GOAL:
-            self.publish_target('goal')
-            self.publish_mode('HOLD')
-            self.publish_rgb(255, 255, 0)
-            if goal_detection is not None and self.latest_status.target_class == 'goal' and self.latest_status.visible:
-                self.last_goal_seen_time = now
-                self.transition(self.ALIGN_TO_GOAL)
-            elif state_elapsed > float(self.get_parameter('goal_search_timeout_sec').value):
-                self.transition(self.RECOVER)
+            self.transition(self.RECOVER)
 
         elif self.state == self.ALIGN_TO_GOAL:
-            self.publish_target('goal')
-            self.publish_mode('TRACK')
-            self.publish_rgb(255, 165, 0)
-            lost_goal = (
-                self.latest_status.target_class != 'goal' or
-                (now - self.last_goal_seen_time) > float(self.get_parameter('goal_lost_timeout_sec').value)
-            )
-            if lost_goal:
-                self.transition(self.SEARCH_GOAL)
-            else:
-                goal_pan_error = self.latest_status.pan_error if self.latest_status.visible else self.last_goal_pan_error
-                twist.angular.z = self.biased_turn(
-                    goal_pan_error,
-                    float(self.get_parameter('goal_align_turn_gain').value),
-                    float(self.get_parameter('max_turn_speed').value),
-                    float(self.get_parameter('min_align_turn_speed').value),
-                )
-                twist.angular.z *= turn_sign
-                if abs(goal_pan_error) < float(self.get_parameter('goal_align_pan_tolerance').value):
-                    self.transition(self.DRIVE_TO_GOAL)
+            self.transition(self.RECOVER)
 
         elif self.state == self.DRIVE_TO_GOAL:
-            self.publish_target('goal')
-            self.publish_mode('HOLD')
-            self.publish_rgb(255, 255, 255)
-            twist.linear.x = forward_sign * float(self.get_parameter('goal_drive_speed').value)
-            if state_elapsed >= float(self.get_parameter('goal_drive_duration_sec').value):
-                self.transition(self.KICK)
+            self.transition(self.RECOVER)
 
         elif self.state == self.KICK:
-            self.publish_target('goal')
-            self.publish_mode('HOLD')
-            self.publish_rgb(0, 255, 255)
-            if state_elapsed < float(self.get_parameter('kick_duration_sec').value):
-                twist.linear.x = forward_sign * 0.35
-            else:
-                self.transition(self.RECOVER)
+            self.transition(self.RECOVER)
 
         elif self.state == self.RECOVER:
             self.publish_target('ball')
             self.publish_mode('HOLD')
-            self.publish_rgb(120, 0, 120)
+            self.publish_rgb(255, 255, 0)
             if state_elapsed >= float(self.get_parameter('recover_duration_sec').value):
                 self.transition(self.SEARCH_BALL)
 
