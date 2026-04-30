@@ -84,6 +84,10 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_chase_crawl_speed', 0.0)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
         self.declare_parameter('ball_chase_max_speed', 0.20)
+        self.declare_parameter('possession_candidate_hold_sec', 0.15)
+        self.declare_parameter('blind_zone_capture_timeout_sec', 0.35)
+        self.declare_parameter('possession_turn_tolerance_px', 120.0)
+        self.declare_parameter('possession_max_turn_cmd', 0.12)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -101,6 +105,10 @@ class SoccerFSMNode(Node):
         self.last_angular_z = 0.0
         self.linear_active_since = None
         self.angular_active_since = None
+        self.last_possession_candidate_time = 0.0
+        self.candidate_stable_since = None
+        self.ball_blind_zone_since = None
+        self.last_approach_was_straight = False
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -147,6 +155,12 @@ class SoccerFSMNode(Node):
             return None
         return detection
 
+    def reset_possession_tracking(self):
+        self.last_possession_candidate_time = 0.0
+        self.candidate_stable_since = None
+        self.ball_blind_zone_since = None
+        self.last_approach_was_straight = False
+
     def transition(self, new_state):
         if new_state != self.state:
             self.get_logger().info(f'Transition: {self.state} -> {new_state}')
@@ -156,6 +170,7 @@ class SoccerFSMNode(Node):
             self.linear_active_since = None
             self.last_linear_x = 0.0
             self.last_angular_z = 0.0
+            self.reset_possession_tracking()
 
     def publish_target(self, target_class):
         if target_class != self.track_target:
@@ -177,8 +192,6 @@ class SoccerFSMNode(Node):
         self.rgb_pub.publish(msg)
 
     def stop_outputs(self):
-        # Publish a short stop burst so the hardware side is more likely to
-        # receive a zero command before the ROS graph tears down.
         zero_twist = Twist()
         leds_off = Point()
         leds_off.x = 0.0
@@ -230,7 +243,7 @@ class SoccerFSMNode(Node):
     def control_loop(self):
         twist = Twist()
         ball_detection = self.get_detection('ball')
-        goal_detection = self.get_detection('goal')
+        _goal_detection = self.get_detection('goal')
         now = self.now_seconds()
         state_elapsed = now - self.state_enter_time
         forward_sign = float(self.get_parameter('forward_sign').value)
@@ -249,8 +262,6 @@ class SoccerFSMNode(Node):
                 self.last_ball_seen_time = now
                 self.transition(self.APPROACH_BALL)
             else:
-                # Search uses a short in-place spin pulse, then a longer pause for
-                # the detector to stabilize before the next pulse.
                 search_on = float(self.get_parameter('search_spin_on_sec').value)
                 search_off = float(self.get_parameter('search_spin_off_sec').value)
                 search_cycle = search_on + search_off
@@ -275,7 +286,6 @@ class SoccerFSMNode(Node):
             if lost_ball:
                 self.transition(self.RECOVER)
             else:
-                # Align the chassis to the ball by driving the gimbal back toward neutral.
                 camera_angle_error = self.latest_status.pan_error if self.latest_status.visible else self.last_ball_pan_error
                 twist.angular.z = self.biased_turn(
                     camera_angle_error,
@@ -294,20 +304,22 @@ class SoccerFSMNode(Node):
             self.publish_target('ball')
             self.publish_mode('HOLD')
             self.publish_rgb(0, 120, 255)
-            lost_ball = (
-                self.latest_status.target_class != 'ball' or
-                not self.latest_status.visible or
-                self.latest_status.stale
+            possession_turn_tolerance = float(self.get_parameter('possession_turn_tolerance_px').value)
+            possession_max_turn_cmd = float(self.get_parameter('possession_max_turn_cmd').value)
+            visible_ball = (
+                self.latest_status.target_class == 'ball' and
+                self.latest_status.visible and
+                not self.latest_status.stale
             )
-            if lost_ball:
-                self.transition(self.RECOVER)
-            else:
+
+            if visible_ball:
                 error_x = self.latest_status.error_x
                 tracking_area = self.latest_status.area
                 centered_enough = abs(error_x) < float(self.get_parameter('ball_chase_center_threshold_px').value)
+                capture_aligned = abs(error_x) < possession_turn_tolerance
+                self.ball_blind_zone_since = None
 
                 if centered_enough:
-                    # Drive straight once the ball is inside a usable cone.
                     twist.angular.z = 0.0
                     area_error = max(0.0, float(self.get_parameter('ball_area_target').value) - tracking_area)
                     twist.linear.x = forward_sign * self.proportional(
@@ -315,10 +327,8 @@ class SoccerFSMNode(Node):
                         0.000006,
                         float(self.get_parameter('ball_chase_max_speed').value),
                     )
+                    self.last_approach_was_straight = True
                 else:
-                    # Turn in place until the ball is roughly centered. Mixing
-                    # forward motion with a stuck wheel causes the chassis to arc
-                    # off target, so do not crawl here.
                     twist.linear.x = 0.0
                     twist.angular.z = self.biased_turn(
                         error_x,
@@ -327,17 +337,41 @@ class SoccerFSMNode(Node):
                         float(self.get_parameter('min_chase_turn_speed').value),
                     )
                     twist.angular.z *= turn_sign
-                if self.latest_status.in_range:
+                    self.last_approach_was_straight = False
+
+                if (
+                    self.latest_status.possession_candidate
+                    and capture_aligned
+                    and abs(twist.angular.z) <= possession_max_turn_cmd
+                ):
+                    if self.candidate_stable_since is None:
+                        self.candidate_stable_since = now
+                    elif (now - self.candidate_stable_since) >= float(self.get_parameter('possession_candidate_hold_sec').value):
+                        self.last_possession_candidate_time = now
+                else:
+                    self.candidate_stable_since = None
+            else:
+                candidate_recent = (
+                    self.last_possession_candidate_time > 0.0 and
+                    (now - self.last_possession_candidate_time) <= float(self.get_parameter('blind_zone_capture_timeout_sec').value)
+                )
+                if candidate_recent and self.last_approach_was_straight:
+                    if self.ball_blind_zone_since is None:
+                        self.ball_blind_zone_since = now
                     self.transition(self.BALL_POSSESSION)
+                else:
+                    self.transition(self.RECOVER)
 
         elif self.state == self.BALL_POSSESSION:
             self.publish_target('ball')
             self.publish_mode('HOLD')
             self.publish_rgb(0, 255, 0)
             if (
-                self.latest_status.target_class == 'ball' and
-                not self.latest_status.visible and
-                self.latest_status.stale
+                state_elapsed >= float(self.get_parameter('ball_possession_hold_sec').value)
+                and self.latest_status.target_class == 'ball'
+                and self.latest_status.visible
+                and not self.latest_status.stale
+                and not self.latest_status.possession_candidate
             ):
                 self.transition(self.RECOVER)
 
@@ -360,8 +394,6 @@ class SoccerFSMNode(Node):
             if state_elapsed >= float(self.get_parameter('recover_duration_sec').value):
                 self.transition(self.SEARCH_BALL)
 
-        # Apply a global test-speed scale first, then rate-limit the command so
-        # perception is not forced to keep up with abrupt motion changes.
         scaled_linear_x = twist.linear.x * float(self.get_parameter('linear_speed_scale').value)
         scaled_angular_z = twist.angular.z * float(self.get_parameter('angular_speed_scale').value)
         min_linear = float(self.get_parameter('min_effective_linear_speed').value)
@@ -370,6 +402,7 @@ class SoccerFSMNode(Node):
             scaled_linear_x = min_linear if scaled_linear_x > 0.0 else -min_linear
         if 0.0 < abs(scaled_angular_z) < min_turn:
             scaled_angular_z = min_turn if scaled_angular_z > 0.0 else -min_turn
+
         if abs(scaled_linear_x) < 1e-6:
             twist.linear.x = 0.0
             self.linear_active_since = None
@@ -405,9 +438,6 @@ class SoccerFSMNode(Node):
                     'angular_active_since',
                 )
             elif self.state == self.APPROACH_BALL and abs(twist.linear.x) < 1e-6:
-                # Turn-only approach still needs breakaway help, but using the
-                # full search-spin kick makes the robot whip past the ball and lose
-                # it. Use a softer dedicated turn profile here.
                 twist.angular.z = self.enforce_axis_motion_profile(
                     ramped_angular_z,
                     now,
@@ -419,6 +449,7 @@ class SoccerFSMNode(Node):
                 hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
                 magnitude = max(abs(ramped_angular_z), hold_floor)
                 twist.angular.z = magnitude if ramped_angular_z > 0.0 else -magnitude
+
         self.last_linear_x = twist.linear.x
         self.last_angular_z = twist.angular.z
         self.cmd_pub.publish(twist)
@@ -452,10 +483,3 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-
-
-
-
-
-
-

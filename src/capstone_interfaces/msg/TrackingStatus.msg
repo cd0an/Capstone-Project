@@ -3,6 +3,8 @@ string target_class
 bool visible
 bool centered
 bool in_range
+# Ball geometry suggests it is entering the plow capture zone.
+bool possession_candidate
 bool stale
 # Gimbal pan offset from neutral in PWM units.
 float32 pan_error

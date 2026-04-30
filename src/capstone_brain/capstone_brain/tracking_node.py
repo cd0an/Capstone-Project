@@ -39,6 +39,9 @@ class TrackingNode(Node):
         self.declare_parameter('scan_step', 4.0)
         self.declare_parameter('center_tolerance_px', 55.0)
         self.declare_parameter('close_area_ball', 50000.0)
+        self.declare_parameter('possession_center_tolerance_px', 120.0)
+        self.declare_parameter('possession_row_px', 380.0)
+        self.declare_parameter('possession_min_area', 12000.0)
         self.declare_parameter('stale_timeout_sec', 1.0)
         self.declare_parameter('hold_last_target_timeout_sec', 1.8)
         self.declare_parameter('tracking_deadband_px', 35.0)
@@ -112,6 +115,51 @@ class TrackingNode(Node):
         pan_center = float(self.get_parameter('pan_center').value)
         return float(self.servo_x - pan_center)
 
+    def compute_possession_candidate(self, visible, target_class, center_x_error, detection_center_y, area):
+        if not visible or target_class != 'ball':
+            return False
+        center_tolerance = float(self.get_parameter('possession_center_tolerance_px').value)
+        possession_row_px = float(self.get_parameter('possession_row_px').value)
+        possession_min_area = float(self.get_parameter('possession_min_area').value)
+        return (
+            abs(center_x_error) <= center_tolerance
+            and detection_center_y >= possession_row_px
+            and area >= possession_min_area
+        )
+
+    def apply_detection_status(self, status, detection, visible, include_y_for_center=False):
+        target_center_x = detection.frame_width / 2.0
+        target_center_y = detection.frame_height / 2.0
+        error_x = float(target_center_x - detection.center_x)
+        error_y = float(target_center_y - detection.center_y)
+        center_tolerance = float(self.get_parameter('center_tolerance_px').value)
+
+        status.visible = visible
+        if include_y_for_center:
+            status.centered = abs(error_x) <= center_tolerance and abs(error_y) <= center_tolerance
+        else:
+            status.centered = abs(error_x) <= center_tolerance
+        status.in_range = self.target_class == 'ball' and detection.area >= float(self.get_parameter('close_area_ball').value)
+        status.error_x = error_x
+        status.error_y = error_y
+        status.area = float(detection.area)
+        status.confidence = float(detection.confidence)
+        status.frame_width = int(detection.frame_width)
+        status.frame_height = int(detection.frame_height)
+        status.possession_candidate = self.compute_possession_candidate(
+            visible,
+            self.target_class,
+            error_x,
+            float(detection.center_y),
+            float(detection.area),
+        )
+
+    def clear_status(self, status):
+        status.visible = False
+        status.centered = False
+        status.in_range = False
+        status.possession_candidate = False
+
     def control_loop(self):
         detection, stale, age = self.current_detection()
         status = TrackingStatus()
@@ -125,42 +173,18 @@ class TrackingNode(Node):
             self.servo_y = float(self.get_parameter('tilt_center').value)
             self.publish_gimbal(self.servo_x, self.servo_y)
             if detection is not None:
-                target_center_x = detection.frame_width / 2.0
-                target_center_y = detection.frame_height / 2.0
-                status.visible = not stale
-                status.centered = abs(target_center_x - detection.center_x) <= float(self.get_parameter('center_tolerance_px').value)
-                status.in_range = self.target_class == 'ball' and detection.area >= float(self.get_parameter('close_area_ball').value)
-                status.error_x = float(target_center_x - detection.center_x)
-                status.error_y = float(target_center_y - detection.center_y)
-                status.area = float(detection.area)
-                status.confidence = float(detection.confidence)
-                status.frame_width = int(detection.frame_width)
-                status.frame_height = int(detection.frame_height)
+                self.apply_detection_status(status, detection, not stale, include_y_for_center=False)
             else:
-                status.visible = False
-                status.centered = False
-                status.in_range = False
+                self.clear_status(status)
             status.pan_error = 0.0
             self.status_pub.publish(status)
             return
 
         if self.mode == 'HOLD':
             if detection is not None:
-                target_center_x = detection.frame_width / 2.0
-                target_center_y = detection.frame_height / 2.0
-                status.visible = not stale
-                status.centered = abs(target_center_x - detection.center_x) <= float(self.get_parameter('center_tolerance_px').value)
-                status.in_range = self.target_class == 'ball' and detection.area >= float(self.get_parameter('close_area_ball').value)
-                status.error_x = float(target_center_x - detection.center_x)
-                status.error_y = float(target_center_y - detection.center_y)
-                status.area = float(detection.area)
-                status.confidence = float(detection.confidence)
-                status.frame_width = int(detection.frame_width)
-                status.frame_height = int(detection.frame_height)
+                self.apply_detection_status(status, detection, not stale, include_y_for_center=False)
             else:
-                status.visible = False
-                status.centered = False
-                status.in_range = False
+                self.clear_status(status)
             self.publish_gimbal(self.servo_x, self.servo_y)
             self.status_pub.publish(status)
             return
@@ -169,21 +193,9 @@ class TrackingNode(Node):
             # During chase the chassis owns steering; the gimbal stays where it is
             # and only reports status back to the FSM.
             if detection is not None:
-                target_center_x = detection.frame_width / 2.0
-                target_center_y = detection.frame_height / 2.0
-                status.visible = not stale
-                status.centered = abs(target_center_x - detection.center_x) <= float(self.get_parameter('center_tolerance_px').value)
-                status.in_range = self.target_class == 'ball' and detection.area >= float(self.get_parameter('close_area_ball').value)
-                status.error_x = float(target_center_x - detection.center_x)
-                status.error_y = float(target_center_y - detection.center_y)
-                status.area = float(detection.area)
-                status.confidence = float(detection.confidence)
-                status.frame_width = int(detection.frame_width)
-                status.frame_height = int(detection.frame_height)
+                self.apply_detection_status(status, detection, not stale, include_y_for_center=False)
             else:
-                status.visible = False
-                status.centered = False
-                status.in_range = False
+                self.clear_status(status)
             self.servo_y = float(self.get_parameter('tilt_center').value)
             self.publish_gimbal(self.servo_x, self.servo_y)
             self.status_pub.publish(status)
@@ -206,17 +218,13 @@ class TrackingNode(Node):
             self.servo_y = tilt_center
             self.publish_gimbal(self.servo_x, self.servo_y)
             status.pan_error = self.current_pan_error()
-            status.visible = False
-            status.centered = False
-            status.in_range = False
+            self.clear_status(status)
             self.status_pub.publish(status)
             return
 
         hold_timeout = float(self.get_parameter('hold_last_target_timeout_sec').value)
         if stale and age is not None and age <= hold_timeout:
-            status.visible = False
-            status.centered = False
-            status.in_range = False
+            self.clear_status(status)
             status.error_x = float((detection.frame_width / 2.0) - detection.center_x)
             status.error_y = float((detection.frame_height / 2.0) - detection.center_y)
             status.area = float(detection.area)
@@ -245,9 +253,7 @@ class TrackingNode(Node):
             self.servo_y = tilt_center
             self.publish_gimbal(self.servo_x, self.servo_y)
             status.pan_error = self.current_pan_error()
-            status.visible = False
-            status.centered = False
-            status.in_range = False
+            self.clear_status(status)
             self.status_pub.publish(status)
             return
 
@@ -268,19 +274,7 @@ class TrackingNode(Node):
         self.servo_y = float(self.get_parameter('tilt_center').value)
         self.publish_gimbal(self.servo_x, self.servo_y)
 
-        center_tolerance = float(self.get_parameter('center_tolerance_px').value)
-        ball_close_area = float(self.get_parameter('close_area_ball').value)
-
-        status.visible = True
-        status.centered = abs(error_x) <= center_tolerance and abs(error_y) <= center_tolerance
-        status.in_range = self.target_class == 'ball' and detection.area >= ball_close_area
-        status.error_x = float(error_x)
-        status.error_y = float(error_y)
-        status.area = float(detection.area)
-        status.confidence = float(detection.confidence)
-        status.frame_width = int(detection.frame_width)
-        status.frame_height = int(detection.frame_height)
-        
+        self.apply_detection_status(status, detection, True, include_y_for_center=True)
         status.pan_error = self.current_pan_error()
         self.status_pub.publish(status)
 
