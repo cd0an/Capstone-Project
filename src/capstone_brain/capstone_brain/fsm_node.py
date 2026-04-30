@@ -55,7 +55,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_spin_on_sec', 0.03)
+        self.declare_parameter('search_spin_on_sec', 0.05)
         self.declare_parameter('search_spin_off_sec', 0.35)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
@@ -177,6 +177,9 @@ class SoccerFSMNode(Node):
         # receive a zero command before the ROS graph tears down.
         zero_twist = Twist()
         leds_off = Point()
+        leds_off.x = 0.0
+        leds_off.y = 0.0
+        leds_off.z = 0.0
         for _ in range(5):
             try:
                 self.cmd_pub.publish(zero_twist)
@@ -385,6 +388,17 @@ class SoccerFSMNode(Node):
                     float(self.get_parameter('angular_hold_speed').value),
                     'angular_active_since',
                 )
+            elif self.state == self.APPROACH_BALL and abs(twist.linear.x) < 1e-6:
+                # Turn-only approach needs the same breakaway help as search,
+                # otherwise one wheel can stay stuck and the robot never finishes
+                # rotating onto the ball.
+                twist.angular.z = self.enforce_axis_motion_profile(
+                    ramped_angular_z,
+                    now,
+                    float(self.get_parameter('angular_breakaway_speed').value),
+                    float(self.get_parameter('angular_hold_speed').value),
+                    'angular_active_since',
+                )
             else:
                 hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
                 magnitude = max(abs(ramped_angular_z), hold_floor)
@@ -422,4 +436,6 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+
 
