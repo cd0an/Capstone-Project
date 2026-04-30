@@ -53,8 +53,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('linear_hold_speed', 0.18)
         self.declare_parameter('approach_linear_breakaway_speed', 0.32)
         self.declare_parameter('approach_linear_hold_speed', 0.28)
-        self.declare_parameter('approach_centered_linear_breakaway_speed', 0.20)
-        self.declare_parameter('approach_centered_linear_hold_speed', 0.12)
+        self.declare_parameter('approach_centered_linear_breakaway_speed', 0.16)
+        self.declare_parameter('approach_centered_linear_hold_speed', 0.08)
         self.declare_parameter('approach_close_linear_breakaway_speed', 0.24)
         self.declare_parameter('approach_close_linear_hold_speed', 0.12)
         self.declare_parameter('approach_near_linear_breakaway_speed', 0.18)
@@ -142,8 +142,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_arc_min_forward_scale', 0.05)
         self.declare_parameter('ball_arc_pivot_err_x', 420.0)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
-        self.declare_parameter('blind_zone_capture_timeout_sec', 0.80)
-        self.declare_parameter('blind_zone_capture_recent_center_sec', 0.45)
+        self.declare_parameter('blind_zone_capture_timeout_sec', 0.35)
+        self.declare_parameter('blind_zone_capture_recent_center_sec', 0.25)
         self.declare_parameter('possession_turn_tolerance_px', 70.0)
         self.declare_parameter('possession_max_turn_cmd', 0.25)
         self.declare_parameter('possession_confirm_min_area', 9000.0)
@@ -184,6 +184,7 @@ class SoccerFSMNode(Node):
         self.last_possession_candidate_area = 0.0
         self.last_possession_candidate_error_y = 0.0
         self.last_possession_candidate_error_x = 0.0
+        self.last_ball_centered_time = 0.0
         self.visible_possession_ready_since = None
         self.candidate_stable_since = None
         self.ball_blind_zone_since = None
@@ -565,7 +566,6 @@ class SoccerFSMNode(Node):
                     if plow_brake_ready:
                         twist.linear.x = forward_sign * float(self.get_parameter('approach_plow_brake_speed').value)
                         twist.angular.z = 0.0
-                        self.last_approach_was_straight = True
 
                     creep_mode = abs(twist.linear.x) > 1e-6
 
