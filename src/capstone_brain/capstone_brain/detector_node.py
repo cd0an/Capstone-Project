@@ -64,6 +64,8 @@ class DetectorNode(Node):
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.get_parameter('frame_height').value))
 
         self.last_primary_by_class = {}
+        self.debug_image_publish_count = 0
+        self.debug_image_encode_warned = False
 
         self.timer = self.create_timer(0.05, self.process_frame)
         self.get_logger().info(f'Detector node started with model at {model_root}')
@@ -227,6 +229,14 @@ class DetectorNode(Node):
                 image_msg.format = 'jpeg'
                 image_msg.data = encoded.tobytes()
                 self.debug_image_publisher.publish(image_msg)
+                self.debug_image_publish_count += 1
+                if self.debug_image_publish_count == 1:
+                    self.get_logger().info(
+                        f"Publishing detector debug frames on {self.get_parameter('debug_image_topic').value}"
+                    )
+            elif not self.debug_image_encode_warned:
+                self.debug_image_encode_warned = True
+                self.get_logger().warning('Failed to JPEG-encode detector debug frame.')
         if self.show_window:
             cv2.imshow(self.window_name, annotated_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
