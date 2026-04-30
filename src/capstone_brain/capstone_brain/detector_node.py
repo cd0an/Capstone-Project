@@ -215,6 +215,7 @@ class DetectorNode(Node):
                     'area': area,
                     'bbox_area': bbox_area,
                     'fill_ratio': fill_ratio,
+                    'polygon': None if class_name != 'ball' or index >= len(masks_xy) or masks_xy[index] is None else masks_xy[index].astype('float32'),
                     'confidence': confidence,
                 }
                 candidate_score = self.candidate_score(class_name, candidate, frame_width, frame_height)
@@ -252,20 +253,48 @@ class DetectorNode(Node):
 
         primary_ball = primary_by_class.get('ball')
         if primary_ball is not None:
-            x1 = int(round(primary_ball['center_x'] - primary_ball['width'] / 2.0))
-            y1 = int(round(primary_ball['center_y'] - primary_ball['height'] / 2.0))
-            x2 = int(round(primary_ball['center_x'] + primary_ball['width'] / 2.0))
-            y2 = int(round(primary_ball['center_y'] + primary_ball['height'] / 2.0))
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            polygon = primary_ball.get('polygon')
+            label_x = int(round(primary_ball['center_x'] - primary_ball['width'] / 2.0))
+            label_y = int(round(primary_ball['center_y'] - primary_ball['height'] / 2.0))
+            if polygon is not None and len(polygon) >= 3:
+                cv2.polylines(
+                    annotated_frame,
+                    [polygon.astype('int32').reshape((-1, 1, 2))],
+                    True,
+                    (0, 255, 0),
+                    3,
+                )
+                label_x = int(round(polygon[:, 0].min()))
+                label_y = int(round(polygon[:, 1].min()))
+            else:
+                x1 = int(round(primary_ball['center_x'] - primary_ball['width'] / 2.0))
+                y1 = int(round(primary_ball['center_y'] - primary_ball['height'] / 2.0))
+                x2 = int(round(primary_ball['center_x'] + primary_ball['width'] / 2.0))
+                y2 = int(round(primary_ball['center_y'] + primary_ball['height'] / 2.0))
+                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
             cv2.putText(
                 annotated_frame,
                 'PRIMARY BALL',
-                (x1, max(20, y1 - 10)),
+                (label_x, max(20, label_y - 10)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (0, 255, 0),
                 2,
                 cv2.LINE_AA,
+            )
+            cv2.circle(
+                annotated_frame,
+                (int(round(primary_ball['center_x'])), int(round(primary_ball['center_y']))),
+                4,
+                (255, 255, 255),
+                -1,
+            )
+            cv2.circle(
+                annotated_frame,
+                (int(round(primary_ball['center_x'])), int(round(primary_ball['bottom_y']))),
+                5,
+                (0, 0, 255),
+                -1,
             )
 
         self.publisher.publish(msg)
