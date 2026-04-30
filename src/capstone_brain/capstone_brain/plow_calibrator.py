@@ -6,6 +6,8 @@ import termios
 import tty
 from dataclasses import dataclass
 
+import cv2
+import numpy as np
 import rclpy
 from capstone_interfaces.msg import SoccerDetections, TrackingStatus
 from rclpy.node import Node
@@ -37,10 +39,19 @@ class PlowCalibratorNode(Node):
         self.declare_parameter("status_topic", "/soccer/tracking_status")
         self.declare_parameter("output_csv", "~/plow_calibration_samples.csv")
         self.declare_parameter("print_period_sec", 0.25)
+        self.declare_parameter("show_window", True)
+        self.declare_parameter("window_name", "TurboPi Plow Calibrator")
+        self.declare_parameter("display_width", 640)
+        self.declare_parameter("display_height", 480)
+        self.declare_parameter("possession_center_tolerance_px", 170.0)
+        self.declare_parameter("possession_row_px", 165.0)
 
         self.latest_status = TrackingStatus()
         self.latest_ball = None
         self.last_print_time = 0.0
+        self.show_window = bool(self.get_parameter("show_window").value)
+        self.window_name = str(self.get_parameter("window_name").value)
+        self.last_saved_label = ""
 
         output_csv = os.path.expanduser(str(self.get_parameter("output_csv").value))
         self.output_csv = os.path.abspath(output_csv)
@@ -151,6 +162,7 @@ class PlowCalibratorNode(Node):
         with open(self.output_csv, "a", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
             writer.writerow(row)
+        self.last_saved_label = label
         self.get_logger().info(
             f"saved label={label} err_x={row[7]} err_y={row[8]} area={row[9]} bottom_y={row[11]} cand={row[3]}"
         )
@@ -169,18 +181,92 @@ class PlowCalibratorNode(Node):
             if not ready:
                 break
             key = os.read(self.stdin_fd, 1).decode("utf-8", errors="ignore").lower()
-            if key in LABELS:
-                self.write_sample(LABELS[key])
-            elif key == "p":
-                self.print_current_state()
-            elif key == "q":
-                self.get_logger().info("quit requested from keyboard")
-                if rclpy.ok():
-                    rclpy.shutdown()
-                return
+            self.handle_key(key)
+
+    def handle_key(self, key):
+        if key in LABELS:
+            self.write_sample(LABELS[key])
+        elif key == "p":
+            self.print_current_state()
+        elif key == "q":
+            self.get_logger().info("quit requested from keyboard")
+            if rclpy.ok():
+                rclpy.shutdown()
+
+    def estimated_bbox(self, ball, frame_width, frame_height):
+        if ball is None:
+            return None
+        half_height = max(1.0, float(ball.bbox_bottom_y) - float(ball.center_y))
+        height = max(2.0, 2.0 * half_height)
+        width = max(2.0, float(ball.area) / height)
+        x1 = int(round(ball.center_x - width / 2.0))
+        x2 = int(round(ball.center_x + width / 2.0))
+        y1 = int(round(ball.bbox_bottom_y - height))
+        y2 = int(round(ball.bbox_bottom_y))
+        x1 = max(0, min(frame_width - 1, x1))
+        x2 = max(0, min(frame_width - 1, x2))
+        y1 = max(0, min(frame_height - 1, y1))
+        y2 = max(0, min(frame_height - 1, y2))
+        return x1, y1, x2, y2
+
+    def render_display(self):
+        if not self.show_window:
+            return
+
+        status = self.latest_status
+        ball = self.latest_ball
+        frame_width = int(status.frame_width) if int(status.frame_width) > 0 else int(self.get_parameter("display_width").value)
+        frame_height = int(status.frame_height) if int(status.frame_height) > 0 else int(self.get_parameter("display_height").value)
+        canvas = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+
+        center_x = frame_width // 2
+        center_y = frame_height // 2
+        tolerance = int(round(float(self.get_parameter("possession_center_tolerance_px").value)))
+        plow_row = int(round(float(self.get_parameter("possession_row_px").value)))
+
+        cv2.line(canvas, (center_x, 0), (center_x, frame_height - 1), (80, 80, 80), 1)
+        cv2.line(canvas, (0, center_y), (frame_width - 1, center_y), (60, 60, 60), 1)
+        cv2.line(canvas, (0, plow_row), (frame_width - 1, plow_row), (255, 180, 0), 2)
+        cv2.line(canvas, (max(0, center_x - tolerance), 0), (max(0, center_x - tolerance), frame_height - 1), (255, 180, 0), 1)
+        cv2.line(canvas, (min(frame_width - 1, center_x + tolerance), 0), (min(frame_width - 1, center_x + tolerance), frame_height - 1), (255, 180, 0), 1)
+
+        bbox = self.estimated_bbox(ball, frame_width, frame_height)
+        if bbox is not None:
+            candidate_color = (0, 220, 0) if status.possession_candidate else (0, 180, 255)
+            if status.centered and status.possession_candidate:
+                candidate_color = (0, 255, 0)
+            x1, y1, x2, y2 = bbox
+            cv2.rectangle(canvas, (x1, y1), (x2, y2), candidate_color, 2)
+            cv2.circle(canvas, (int(round(ball.center_x)), int(round(ball.center_y))), 4, (255, 255, 255), -1)
+            cv2.circle(canvas, (int(round(ball.center_x)), int(round(ball.bbox_bottom_y))), 5, (0, 0, 255), -1)
+
+        text_lines = [
+            "Hotkeys: o outside | n near_edge | i in_plow | d too_deep | p print | q quit",
+            f"visible={int(status.visible)} cand={int(status.possession_candidate)} centered={int(status.centered)} in_range={int(status.in_range)} stale={int(status.stale)}",
+            f"err_x={float(status.error_x):.1f} err_y={float(status.error_y):.1f} area={float(status.area):.1f} conf={float(status.confidence):.3f}",
+            f"bottom_y={'' if ball is None else f'{ball.bbox_bottom_y:.1f}'} center_x={'' if ball is None else f'{ball.center_x:.1f}'} center_y={'' if ball is None else f'{ball.center_y:.1f}'}",
+            f"last_saved={self.last_saved_label or '-'} row={plow_row} tol={tolerance}",
+        ]
+        for index, line in enumerate(text_lines):
+            cv2.putText(
+                canvas,
+                line,
+                (10, 24 + index * 24),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (230, 230, 230),
+                1,
+                cv2.LINE_AA,
+            )
+
+        cv2.imshow(self.window_name, canvas)
+        key_code = cv2.waitKey(1) & 0xFF
+        if key_code != 255:
+            self.handle_key(chr(key_code).lower())
 
     def control_loop(self):
         self.poll_keyboard()
+        self.render_display()
         now = self.now_seconds()
         if now - self.last_print_time >= float(self.get_parameter("print_period_sec").value):
             self.last_print_time = now
@@ -189,6 +275,8 @@ class PlowCalibratorNode(Node):
     def destroy_node(self):
         if self.stdin_fd is not None and self.stdin_settings is not None:
             termios.tcsetattr(self.stdin_fd, termios.TCSADRAIN, self.stdin_settings)
+        if self.show_window:
+            cv2.destroyAllWindows()
         super().destroy_node()
 
 
