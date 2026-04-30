@@ -81,6 +81,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_curve_turn_breakaway_duration_sec', 0.28)
         self.declare_parameter('approach_launch_duration_sec', 0.28)
         self.declare_parameter('approach_launch_turn_scale', 0.45)
+        self.declare_parameter('approach_launch_turn_breakaway_speed', 0.80)
+        self.declare_parameter('approach_launch_turn_hold_speed', 0.25)
         self.declare_parameter('ball_area_target', 50000.0)
         self.declare_parameter('startup_hold_sec', 9.0)
         self.declare_parameter('search_spin_on_sec', 0.12)
@@ -112,8 +114,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 75.0)
-        self.declare_parameter('ball_chase_center_exit_threshold_px', 80.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 45.0)
+        self.declare_parameter('ball_chase_center_exit_threshold_px', 60.0)
         self.declare_parameter('ball_close_center_threshold_px', 45.0)
         self.declare_parameter('ball_close_center_exit_threshold_px', 65.0)
         self.declare_parameter('ball_near_err_y_threshold_px', 120.0)
@@ -158,7 +160,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('visible_possession_close_max_err_x', 12.0)
         self.declare_parameter('visible_possession_close_recent_center_sec', 0.20)
         self.declare_parameter('approach_plow_brake_min_area', 9000.0)
-        self.declare_parameter('approach_plow_brake_max_err_x', 100.0)
+        self.declare_parameter('approach_plow_brake_max_err_x', 25.0)
         self.declare_parameter('approach_plow_brake_max_err_y', 20.0)
         self.declare_parameter('approach_plow_brake_recent_center_sec', 0.30)
         self.declare_parameter('approach_plow_brake_speed', 0.0)
@@ -603,6 +605,10 @@ class SoccerFSMNode(Node):
                     and abs(error_x) <= float(self.get_parameter('visible_possession_close_max_err_x').value)
                     and (now - self.last_ball_centered_time) <= float(self.get_parameter('visible_possession_close_recent_center_sec').value)
                 )
+                if visible_possession_ready or close_visible_ready or deep_visible_ready:
+                    twist.linear.x = 0.0
+                    twist.angular.z = 0.0
+
                 if visible_possession_ready:
                     if self.visible_possession_ready_since is None:
                         self.visible_possession_ready_since = now
@@ -777,9 +783,18 @@ class SoccerFSMNode(Node):
                 )
             else:
                 if self.state == self.APPROACH_BALL:
-                    breakaway_speed = float(self.get_parameter('approach_curve_turn_breakaway_speed').value)
-                    hold_speed = float(self.get_parameter('approach_curve_turn_hold_speed').value)
-                    if self.approach_turn_stuck_active:
+                    launch_active = (
+                        not self.approach_near_ball_mode
+                        and not self.approach_close_area_mode
+                        and (now - self.state_enter_time) <= float(self.get_parameter('approach_launch_duration_sec').value)
+                    )
+                    if launch_active:
+                        breakaway_speed = float(self.get_parameter('approach_launch_turn_breakaway_speed').value)
+                        hold_speed = float(self.get_parameter('approach_launch_turn_hold_speed').value)
+                    else:
+                        breakaway_speed = float(self.get_parameter('approach_curve_turn_breakaway_speed').value)
+                        hold_speed = float(self.get_parameter('approach_curve_turn_hold_speed').value)
+                    if self.approach_turn_stuck_active and not launch_active:
                         breakaway_speed = float(self.get_parameter('approach_curve_turn_stuck_breakaway_speed').value)
                         hold_speed = float(self.get_parameter('approach_curve_turn_stuck_hold_speed').value)
                     twist.angular.z = self.enforce_axis_motion_profile(
