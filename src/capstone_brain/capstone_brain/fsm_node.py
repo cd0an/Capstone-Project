@@ -83,11 +83,11 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 100.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 140.0)
         self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.0)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
-        self.declare_parameter('ball_chase_max_speed', 0.20)
+        self.declare_parameter('ball_chase_max_speed', 0.14)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
         self.declare_parameter('possession_turn_tolerance_px', 140.0)
@@ -527,6 +527,7 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 
 
