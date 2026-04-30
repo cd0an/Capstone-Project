@@ -85,22 +85,23 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_turn_gain', 0.015)
         self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
+        self.declare_parameter('ball_center_x_bias_px', 0.0)
         self.declare_parameter('ball_align_pan_tolerance', 50.0)
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 70.0)
-        self.declare_parameter('ball_chase_center_exit_threshold_px', 100.0)
-        self.declare_parameter('ball_close_center_threshold_px', 70.0)
-        self.declare_parameter('ball_close_center_exit_threshold_px', 110.0)
-        self.declare_parameter('ball_close_steer_band_px', 160.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 60.0)
+        self.declare_parameter('ball_chase_center_exit_threshold_px', 80.0)
+        self.declare_parameter('ball_close_center_threshold_px', 45.0)
+        self.declare_parameter('ball_close_center_exit_threshold_px', 65.0)
+        self.declare_parameter('ball_close_steer_band_px', 150.0)
         self.declare_parameter('ball_close_center_area', 4500.0)
-        self.declare_parameter('ball_chase_crawl_threshold_px', 140.0)
+        self.declare_parameter('ball_chase_crawl_threshold_px', 120.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.03)
-        self.declare_parameter('ball_chase_creep_turn_speed', 0.10)
+        self.declare_parameter('ball_chase_creep_turn_speed', 0.12)
         self.declare_parameter('ball_close_steer_speed', 0.03)
-        self.declare_parameter('ball_close_steer_turn_speed', 0.14)
+        self.declare_parameter('ball_close_steer_turn_speed', 0.18)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
         self.declare_parameter('ball_close_max_turn_speed', 0.22)
         self.declare_parameter('ball_chase_max_speed', 0.10)
@@ -347,7 +348,9 @@ class SoccerFSMNode(Node):
             debug_message = None
 
             if visible_ball:
-                error_x = self.latest_status.error_x
+                raw_error_x = self.latest_status.error_x
+                center_x_bias = float(self.get_parameter('ball_center_x_bias_px').value)
+                error_x = raw_error_x - center_x_bias
                 tracking_area = self.latest_status.area
                 error_y = self.latest_status.error_y
                 close_area_mode = tracking_area >= float(self.get_parameter('ball_close_center_area').value)
@@ -436,7 +439,7 @@ class SoccerFSMNode(Node):
                     self.candidate_stable_since = None
 
                 debug_message = (
-                    f"APPROACH visible=1 err_x={error_x:.1f} err_y={error_y:.1f} area={tracking_area:.0f} "
+                    f"APPROACH visible=1 err_x={error_x:.1f} raw_x={raw_error_x:.1f} bias={center_x_bias:.1f} err_y={error_y:.1f} area={tracking_area:.0f} "
                     f"close={int(close_area_mode)} thr={enter_threshold:.0f}/{exit_threshold:.0f} centered={int(centered_enough)} latched={int(self.approach_forward_latched)} cand={int(self.latest_status.possession_candidate)} "
                     f"cand_stable={self.candidate_stable_since is not None} "
                     f"armed={int(self.last_possession_candidate_time > 0.0 and (now - self.last_possession_candidate_time) <= float(self.get_parameter('blind_zone_capture_timeout_sec').value))} "
