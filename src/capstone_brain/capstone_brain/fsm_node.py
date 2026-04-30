@@ -57,6 +57,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
+        self.declare_parameter('startup_hold_sec', 4.0)
         self.declare_parameter('search_spin_on_sec', 0.08)
         self.declare_parameter('search_spin_off_sec', 1.00)
         self.declare_parameter('max_turn_speed', 3.0)
@@ -78,14 +79,15 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
         self.declare_parameter('min_align_turn_speed', 0.3)
         self.declare_parameter('min_chase_turn_speed', 0.12)
-        self.declare_parameter('ball_chase_center_threshold_px', 220.0)
+        self.declare_parameter('ball_chase_center_threshold_px', 180.0)
         self.declare_parameter('ball_chase_crawl_threshold_px', 200.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.0)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
         self.declare_parameter('ball_chase_max_speed', 0.20)
 
+        self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
-        self.state_enter_time = self.now_seconds()
+        self.state_enter_time = self.startup_time
         self.latest_status = TrackingStatus()
         self.detections = {}
         self.track_target = 'ball'
@@ -234,7 +236,12 @@ class SoccerFSMNode(Node):
         forward_sign = float(self.get_parameter('forward_sign').value)
         turn_sign = float(self.get_parameter('turn_sign').value)
 
-        if self.state == self.SEARCH_BALL:
+        if (now - self.startup_time) < float(self.get_parameter('startup_hold_sec').value):
+            self.publish_target('ball')
+            self.publish_mode('HOLD')
+            self.publish_rgb(0, 0, 0)
+
+        elif self.state == self.SEARCH_BALL:
             self.publish_target('ball')
             self.publish_mode('SEARCH')
             self.publish_rgb(255, 0, 0)
