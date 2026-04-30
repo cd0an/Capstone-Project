@@ -111,6 +111,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_close_center_area', 4500.0)
         self.declare_parameter('approach_sign_flip_guard_px', 140.0)
         self.declare_parameter('approach_sign_flip_hold_sec', 0.45)
+        self.declare_parameter('approach_close_sign_flip_guard_px', 35.0)
+        self.declare_parameter('approach_close_sign_flip_hold_sec', 0.35)
         self.declare_parameter('ball_chase_crawl_threshold_px', 170.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.05)
         self.declare_parameter('ball_chase_creep_turn_speed', 0.16)
@@ -403,8 +405,12 @@ class SoccerFSMNode(Node):
                 raw_error_x = self.latest_status.error_x
                 center_x_bias = float(self.get_parameter('ball_center_x_bias_px').value)
                 error_x = raw_error_x - center_x_bias
-                flip_guard_px = float(self.get_parameter('approach_sign_flip_guard_px').value)
-                flip_guard_hold = float(self.get_parameter('approach_sign_flip_hold_sec').value)
+                tracking_area = self.latest_status.area
+                error_y = self.latest_status.error_y
+                close_area_mode = tracking_area >= float(self.get_parameter('ball_close_center_area').value)
+                near_ball_mode = close_area_mode and (error_y <= float(self.get_parameter('ball_near_err_y_threshold_px').value))
+                flip_guard_px = float(self.get_parameter('approach_close_sign_flip_guard_px').value) if close_area_mode else float(self.get_parameter('approach_sign_flip_guard_px').value)
+                flip_guard_hold = float(self.get_parameter('approach_close_sign_flip_hold_sec').value) if close_area_mode else float(self.get_parameter('approach_sign_flip_hold_sec').value)
                 committed_recent = (
                     self.approach_committed_error_time > 0.0
                     and (now - self.approach_committed_error_time) <= flip_guard_hold
@@ -421,12 +427,8 @@ class SoccerFSMNode(Node):
                     self.approach_committed_error_x = error_x
                     self.approach_committed_error_time = now
                 self.last_ball_error_x = error_x
-                tracking_area = self.latest_status.area
-                error_y = self.latest_status.error_y
-                close_area_mode = tracking_area >= float(self.get_parameter('ball_close_center_area').value)
                 enter_threshold = float(self.get_parameter('ball_close_center_threshold_px').value) if close_area_mode else float(self.get_parameter('ball_chase_center_threshold_px').value)
                 exit_threshold = float(self.get_parameter('ball_close_center_exit_threshold_px').value) if close_area_mode else float(self.get_parameter('ball_chase_center_exit_threshold_px').value)
-                near_ball_mode = close_area_mode and (error_y <= float(self.get_parameter('ball_near_err_y_threshold_px').value))
                 self.approach_close_area_mode = close_area_mode
                 self.approach_near_ball_mode = near_ball_mode
                 if near_ball_mode:
