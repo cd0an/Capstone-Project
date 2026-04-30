@@ -119,6 +119,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_close_max_speed', 0.07)
         self.declare_parameter('ball_near_max_speed', 0.04)
         self.declare_parameter('ball_chase_max_speed', 0.10)
+        self.declare_parameter('ball_far_turn_forward_speed', 0.03)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
         self.declare_parameter('possession_turn_tolerance_px', 140.0)
@@ -459,7 +460,7 @@ class SoccerFSMNode(Node):
                     self.approach_turn_stuck_since = None
                     self.approach_turn_stuck_active = False
                 else:
-                    twist.linear.x = 0.0
+                    twist.linear.x = 0.0 if close_area_mode else (forward_sign * float(self.get_parameter('ball_far_turn_forward_speed').value))
                     twist.angular.z = self.biased_turn(
                         error_x,
                         float(self.get_parameter('ball_chase_turn_gain').value),
