@@ -475,7 +475,7 @@ class SoccerFSMNode(Node):
                     elif self.approach_turn_stuck_since is not None and (now - self.approach_turn_stuck_since) >= stuck_hold:
                         self.approach_turn_stuck_active = True
 
-                    if self.approach_turn_stuck_active and close_area_mode:
+                    if self.approach_turn_stuck_active:
                         twist.linear.x = forward_sign * float(self.get_parameter('approach_turn_stuck_crawl_speed').value)
 
                 if (
