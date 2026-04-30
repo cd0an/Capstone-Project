@@ -65,6 +65,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_possession_hold_sec', 0.6)
         self.declare_parameter('ball_possession_settle_sec', 0.20)
         self.declare_parameter('ball_possession_settle_speed', 0.10)
+        self.declare_parameter('ball_possession_release_ignore_sec', 0.80)
+        self.declare_parameter('ball_possession_release_hold_sec', 0.30)
         self.declare_parameter('kick_duration_sec', 0.45)
         self.declare_parameter('goal_search_timeout_sec', 5.0)
         self.declare_parameter('ball_lost_timeout_sec', 1.2)
@@ -111,6 +113,7 @@ class SoccerFSMNode(Node):
         self.candidate_stable_since = None
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
+        self.ball_possession_release_since = None
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -162,6 +165,7 @@ class SoccerFSMNode(Node):
         self.candidate_stable_since = None
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
+        self.ball_possession_release_since = None
 
     def transition(self, new_state):
         if new_state != self.state:
@@ -313,6 +317,7 @@ class SoccerFSMNode(Node):
                 self.latest_status.visible and
                 not self.latest_status.stale
             )
+            debug_message = None
 
             if visible_ball:
                 error_x = self.latest_status.error_x
@@ -320,6 +325,7 @@ class SoccerFSMNode(Node):
                 centered_enough = abs(error_x) < float(self.get_parameter('ball_chase_center_threshold_px').value)
                 capture_aligned = abs(error_x) < possession_turn_tolerance
                 self.ball_blind_zone_since = None
+                self.ball_possession_release_since = None
 
                 if centered_enough:
                     twist.angular.z = 0.0
@@ -352,6 +358,14 @@ class SoccerFSMNode(Node):
                         self.last_possession_candidate_time = now
                 else:
                     self.candidate_stable_since = None
+
+                debug_message = (
+                    f"APPROACH visible=1 err_x={error_x:.1f} area={tracking_area:.0f} "
+                    f"centered={int(centered_enough)} cand={int(self.latest_status.possession_candidate)} "
+                    f"cand_stable={self.candidate_stable_since is not None} "
+                    f"armed={int(self.last_possession_candidate_time > 0.0 and (now - self.last_possession_candidate_time) <= float(self.get_parameter('blind_zone_capture_timeout_sec').value))} "
+                    f"straight={int(self.last_approach_was_straight)} vx={twist.linear.x:.3f} wz={twist.angular.z:.3f}"
+                )
             else:
                 candidate_recent = (
                     self.last_possession_candidate_time > 0.0 and
@@ -360,9 +374,21 @@ class SoccerFSMNode(Node):
                 if candidate_recent and self.last_approach_was_straight:
                     if self.ball_blind_zone_since is None:
                         self.ball_blind_zone_since = now
+                    debug_message = (
+                        f"APPROACH blind-zone capture candidate_recent=1 straight=1 "
+                        f"dt={(now - self.last_possession_candidate_time):.2f} -> BALL_POSSESSION"
+                    )
                     self.transition(self.BALL_POSSESSION)
                 else:
+                    debug_message = (
+                        f"APPROACH lost visible=0 candidate_recent={int(candidate_recent)} "
+                        f"straight={int(self.last_approach_was_straight)} -> RECOVER"
+                    )
                     self.transition(self.RECOVER)
+
+            if debug_message is not None and now >= getattr(self, 'next_approach_debug_time', 0.0):
+                self.get_logger().info(debug_message)
+                self.next_approach_debug_time = now + 0.25
 
         elif self.state == self.BALL_POSSESSION:
             self.publish_target('ball')
@@ -373,14 +399,25 @@ class SoccerFSMNode(Node):
             # back out.
             if state_elapsed < float(self.get_parameter('ball_possession_settle_sec').value):
                 twist.linear.x = forward_sign * float(self.get_parameter('ball_possession_settle_speed').value)
-            if (
-                state_elapsed >= float(self.get_parameter('ball_possession_hold_sec').value)
-                and self.latest_status.target_class == 'ball'
+
+            # Once possession is declared, ignore brief reappearances and only
+            # release if the ball is clearly visible outside the capture zone for
+            # a sustained window.
+            release_visible = (
+                self.latest_status.target_class == 'ball'
                 and self.latest_status.visible
                 and not self.latest_status.stale
                 and not self.latest_status.possession_candidate
-            ):
-                self.transition(self.RECOVER)
+            )
+            if state_elapsed < float(self.get_parameter('ball_possession_release_ignore_sec').value):
+                self.ball_possession_release_since = None
+            elif release_visible:
+                if self.ball_possession_release_since is None:
+                    self.ball_possession_release_since = now
+                elif (now - self.ball_possession_release_since) >= float(self.get_parameter('ball_possession_release_hold_sec').value):
+                    self.transition(self.RECOVER)
+            else:
+                self.ball_possession_release_since = None
 
         elif self.state == self.SEARCH_GOAL:
             self.transition(self.RECOVER)
@@ -490,5 +527,6 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 
