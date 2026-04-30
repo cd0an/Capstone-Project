@@ -118,6 +118,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('possession_confirm_min_area', 12000.0)
         self.declare_parameter('possession_confirm_max_err_y', 60.0)
         self.declare_parameter('possession_confirm_center_tolerance_px', 120.0)
+        self.declare_parameter('visible_possession_confirm_hold_sec', 0.15)
+        self.declare_parameter('visible_possession_confirm_max_err_x', 45.0)
+        self.declare_parameter('visible_possession_confirm_max_err_y', 30.0)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -139,6 +142,7 @@ class SoccerFSMNode(Node):
         self.last_possession_candidate_area = 0.0
         self.last_possession_candidate_error_y = 0.0
         self.last_possession_candidate_error_x = 0.0
+        self.visible_possession_ready_since = None
         self.candidate_stable_since = None
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
@@ -198,6 +202,7 @@ class SoccerFSMNode(Node):
         self.last_possession_candidate_area = 0.0
         self.last_possession_candidate_error_y = 0.0
         self.last_possession_candidate_error_x = 0.0
+        self.visible_possession_ready_since = None
         self.candidate_stable_since = None
         self.ball_blind_zone_since = None
         self.last_approach_was_straight = False
@@ -472,10 +477,27 @@ class SoccerFSMNode(Node):
                 else:
                     self.candidate_stable_since = None
 
+                visible_possession_ready = (
+                    self.latest_status.possession_candidate
+                    and tracking_area >= float(self.get_parameter('possession_confirm_min_area').value)
+                    and error_y <= float(self.get_parameter('visible_possession_confirm_max_err_y').value)
+                    and abs(error_x) <= float(self.get_parameter('visible_possession_confirm_max_err_x').value)
+                )
+                if visible_possession_ready:
+                    if self.visible_possession_ready_since is None:
+                        self.visible_possession_ready_since = now
+                    elif (now - self.visible_possession_ready_since) >= float(self.get_parameter('visible_possession_confirm_hold_sec').value):
+                        debug_message = (
+                            f"APPROACH visible possession confirm area={tracking_area:.0f} err_x={error_x:.1f} err_y={error_y:.1f} -> BALL_POSSESSION"
+                        )
+                        self.transition(self.BALL_POSSESSION)
+                else:
+                    self.visible_possession_ready_since = None
+
                 debug_message = (
                     f"APPROACH visible=1 err_x={error_x:.1f} raw_x={raw_error_x:.1f} bias={center_x_bias:.1f} err_y={error_y:.1f} area={tracking_area:.0f} near={int(near_ball_mode)} "
                     f"close={int(close_area_mode)} thr={enter_threshold:.0f}/{exit_threshold:.0f} centered={int(centered_enough)} latched={int(self.approach_forward_latched)} cand={int(self.latest_status.possession_candidate)} "
-                    f"cand_stable={self.candidate_stable_since is not None} "
+                    f"cand_stable={self.candidate_stable_since is not None} vis_ready={self.visible_possession_ready_since is not None} "
                     f"armed={int(self.last_possession_candidate_time > 0.0 and (now - self.last_possession_candidate_time) <= float(self.get_parameter('blind_zone_capture_timeout_sec').value))} "
                     f"straight={int(self.last_approach_was_straight)} creep={int(creep_mode)} stuck={int(self.approach_turn_stuck_active)} vx={twist.linear.x:.3f} wz={twist.angular.z:.3f}"
                 )
@@ -504,9 +526,6 @@ class SoccerFSMNode(Node):
                     )
                     self.transition(self.RECOVER)
 
-            if debug_message is not None and now >= getattr(self, 'next_approach_debug_time', 0.0):
-                self.get_logger().info(debug_message)
-                self.next_approach_debug_time = now + 0.25
 
         elif self.state == self.BALL_POSSESSION:
             self.publish_target('ball')
@@ -599,6 +618,10 @@ class SoccerFSMNode(Node):
                 hold_floor = float(self.get_parameter('chase_angular_hold_speed').value)
                 magnitude = max(abs(ramped_angular_z), hold_floor)
                 twist.angular.z = magnitude if ramped_angular_z > 0.0 else -magnitude
+
+        if self.state == self.APPROACH_BALL and 'debug_message' in locals() and debug_message is not None and now >= getattr(self, 'next_approach_debug_time', 0.0):
+            self.get_logger().info(f"{debug_message} pub_vx={twist.linear.x:.3f} pub_wz={twist.angular.z:.3f}")
+            self.next_approach_debug_time = now + 0.25
 
         self.last_linear_x = twist.linear.x
         self.last_angular_z = twist.angular.z
