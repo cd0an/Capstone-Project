@@ -67,8 +67,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
-        self.declare_parameter('ball_possession_settle_sec', 0.70)
-        self.declare_parameter('ball_possession_settle_speed', 0.14)
+        self.declare_parameter('ball_possession_settle_sec', 0.35)
+        self.declare_parameter('ball_possession_settle_speed', 0.08)
         self.declare_parameter('ball_possession_hold_speed', 0.05)
         self.declare_parameter('ball_possession_release_ignore_sec', 1.40)
         self.declare_parameter('ball_possession_release_hold_sec', 0.70)
@@ -108,6 +108,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_near_steer_turn_speed', 0.22)
         self.declare_parameter('ball_chase_max_turn_speed', 0.14)
         self.declare_parameter('ball_close_max_turn_speed', 0.22)
+        self.declare_parameter('ball_close_max_speed', 0.07)
+        self.declare_parameter('ball_near_max_speed', 0.04)
         self.declare_parameter('ball_chase_max_speed', 0.10)
         self.declare_parameter('possession_candidate_hold_sec', 0.05)
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
@@ -401,6 +403,10 @@ class SoccerFSMNode(Node):
                         0.000006,
                         float(self.get_parameter('ball_chase_max_speed').value),
                     )
+                    if near_ball_mode:
+                        base_forward = min(base_forward, float(self.get_parameter('ball_near_max_speed').value))
+                    elif close_area_mode:
+                        base_forward = min(base_forward, float(self.get_parameter('ball_close_max_speed').value))
                     if close_area_mode:
                         align_scale = max(0.25, 1.0 - (abs(error_x) / max(exit_threshold, 1.0)))
                         base_forward *= align_scale
