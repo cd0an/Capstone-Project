@@ -113,8 +113,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('blind_zone_capture_timeout_sec', 0.50)
         self.declare_parameter('possession_turn_tolerance_px', 140.0)
         self.declare_parameter('possession_max_turn_cmd', 0.14)
-        self.declare_parameter('possession_confirm_min_area', 10000.0)
-        self.declare_parameter('possession_confirm_max_err_y', 70.0)
+        self.declare_parameter('possession_confirm_min_area', 12000.0)
+        self.declare_parameter('possession_confirm_max_err_y', 60.0)
         self.declare_parameter('possession_confirm_center_tolerance_px', 120.0)
 
         self.startup_time = self.now_seconds()
