@@ -51,14 +51,14 @@ class SoccerFSMNode(Node):
         self.declare_parameter('min_effective_turn_speed', 0.10)
         self.declare_parameter('linear_breakaway_speed', 0.26)
         self.declare_parameter('linear_hold_speed', 0.18)
-        self.declare_parameter('approach_linear_breakaway_speed', 0.20)
-        self.declare_parameter('approach_linear_hold_speed', 0.14)
-        self.declare_parameter('approach_close_linear_breakaway_speed', 0.12)
-        self.declare_parameter('approach_close_linear_hold_speed', 0.08)
-        self.declare_parameter('approach_near_linear_breakaway_speed', 0.10)
-        self.declare_parameter('approach_near_linear_hold_speed', 0.06)
-        self.declare_parameter('approach_curve_linear_breakaway_speed', 0.32)
-        self.declare_parameter('approach_curve_linear_hold_speed', 0.20)
+        self.declare_parameter('approach_linear_breakaway_speed', 0.32)
+        self.declare_parameter('approach_linear_hold_speed', 0.28)
+        self.declare_parameter('approach_close_linear_breakaway_speed', 0.24)
+        self.declare_parameter('approach_close_linear_hold_speed', 0.20)
+        self.declare_parameter('approach_near_linear_breakaway_speed', 0.18)
+        self.declare_parameter('approach_near_linear_hold_speed', 0.14)
+        self.declare_parameter('approach_curve_linear_breakaway_speed', 0.50)
+        self.declare_parameter('approach_curve_linear_hold_speed', 0.36)
         self.declare_parameter('angular_breakaway_speed', 2.60)
         self.declare_parameter('angular_hold_speed', 1.20)
         self.declare_parameter('approach_turn_breakaway_speed', 1.80)
@@ -67,7 +67,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('approach_turn_stuck_hold_sec', 0.8)
         self.declare_parameter('approach_turn_stuck_breakaway_speed', 3.00)
         self.declare_parameter('approach_turn_stuck_hold_speed', 1.05)
-        self.declare_parameter('approach_turn_stuck_crawl_speed', 0.060)
+        self.declare_parameter('approach_turn_stuck_crawl_speed', 0.140)
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('approach_drive_turn_hold_speed', 0.12)
         self.declare_parameter('approach_curve_turn_breakaway_speed', 1.60)
@@ -811,6 +811,7 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 
 
