@@ -5,8 +5,10 @@ import cv2
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from capstone_interfaces.msg import SoccerDetection, SoccerDetections
+from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image
 from ultralytics import YOLO
 
 
@@ -20,9 +22,7 @@ CLASS_MAP = {
 class DetectorNode(Node):
     def __init__(self):
         super().__init__('detector_node')
-        self.declare_parameter('camera_index', 0)
-        self.declare_parameter('frame_width', 640)
-        self.declare_parameter('frame_height', 480)
+        self.declare_parameter('image_topic', 'image_raw')
         self.declare_parameter('imgsz', 512)
         self.declare_parameter('confidence_threshold', 0.4)
         self.declare_parameter('publish_topic', '/soccer/detections')
@@ -42,6 +42,7 @@ class DetectorNode(Node):
 
         model_root = Path(get_package_share_directory('capstone_brain')) / 'models' / 'turbopi_ncnn_model'
         self.model = YOLO(str(model_root), task='segment')
+        self.bridge = CvBridge()
         self.show_window = bool(self.get_parameter('show_window').value)
         self.window_name = str(self.get_parameter('window_name').value)
         self.publisher = self.create_publisher(
@@ -57,11 +58,15 @@ class DetectorNode(Node):
                 self.get_parameter('debug_image_topic').value,
                 10,
             )
-
-        camera_index = int(self.get_parameter('camera_index').value)
-        self.cap = cv2.VideoCapture(camera_index)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.get_parameter('frame_width').value))
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.get_parameter('frame_height').value))
+        self.latest_frame = None
+        self.received_image_count = 0
+        self.image_timeout_warned = False
+        self.create_subscription(
+            Image,
+            str(self.get_parameter('image_topic').value),
+            self.image_callback,
+            1,
+        )
 
         self.last_primary_by_class = {}
         self.debug_image_publish_count = 0
@@ -69,6 +74,13 @@ class DetectorNode(Node):
 
         self.timer = self.create_timer(0.05, self.process_frame)
         self.get_logger().info(f'Detector node started with model at {model_root}')
+        self.get_logger().info(f"Subscribing to camera frames on {self.get_parameter('image_topic').value}")
+
+    def image_callback(self, msg):
+        self.latest_frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        self.received_image_count += 1
+        if self.received_image_count == 1:
+            self.get_logger().info(f"Receiving camera frames on {self.get_parameter('image_topic').value}")
 
     def ball_shape_multiplier(self, width, height):
         if width <= 1e-6 or height <= 1e-6:
@@ -117,14 +129,14 @@ class DetectorNode(Node):
         return score
 
     def process_frame(self):
-        if not self.cap.isOpened():
-            self.get_logger().error('Camera is not available on /dev/video0.')
+        if self.latest_frame is None:
+            if not self.image_timeout_warned and (self.get_clock().now().nanoseconds / 1e9) >= 2.0:
+                self.image_timeout_warned = True
+                self.get_logger().warning(
+                    f"No camera frames received on {self.get_parameter('image_topic').value}"
+                )
             return
-
-        success, frame = self.cap.read()
-        if not success:
-            self.get_logger().warning('Camera frame read failed.')
-            return
+        frame = self.latest_frame.copy()
 
         results = self.model.predict(
             frame,
@@ -245,8 +257,6 @@ class DetectorNode(Node):
                     rclpy.shutdown()
 
     def destroy_node(self):
-        if hasattr(self, 'cap') and self.cap.isOpened():
-            self.cap.release()
         if getattr(self, 'show_window', False):
             cv2.destroyAllWindows()
         super().destroy_node()

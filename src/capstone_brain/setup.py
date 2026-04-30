@@ -35,6 +35,7 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
+            "camera_publisher = capstone_brain.camera_publisher:main",
             "detector_node = capstone_brain.detector_node:main",
             "tracking_node = capstone_brain.tracking_node:main",
             "fsm_node = capstone_brain.fsm_node:main",

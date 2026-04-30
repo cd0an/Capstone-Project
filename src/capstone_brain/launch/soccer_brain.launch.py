@@ -8,6 +8,12 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='capstone_brain',
+            executable='camera_publisher',
+            name='camera_publisher',
+            output='screen',
+        ),
+        Node(
+            package='capstone_brain',
             executable='detector_node',
             name='detector_node',
             output='screen',
