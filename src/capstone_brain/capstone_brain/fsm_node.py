@@ -85,7 +85,7 @@ class SoccerFSMNode(Node):
         self.declare_parameter('goal_align_turn_gain', 0.015)
         self.declare_parameter('goal_drive_speed', 0.28)
         self.declare_parameter('goal_drive_duration_sec', 1.2)
-        self.declare_parameter('ball_center_x_bias_px', 0.0)
+        self.declare_parameter('ball_center_x_bias_px', 40.0)
         self.declare_parameter('ball_align_pan_tolerance', 50.0)
         self.declare_parameter('ball_align_timeout_sec', 1.2)
         self.declare_parameter('goal_align_pan_tolerance', 50.0)
