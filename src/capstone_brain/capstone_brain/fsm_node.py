@@ -123,11 +123,9 @@ class SoccerFSMNode(Node):
         self.declare_parameter('possession_turn_tolerance_px', 140.0)
         self.declare_parameter('possession_max_turn_cmd', 0.14)
         self.declare_parameter('possession_confirm_min_area', 12000.0)
-        self.declare_parameter('possession_confirm_max_err_y', 40.0)
         self.declare_parameter('possession_confirm_center_tolerance_px', 90.0)
         self.declare_parameter('visible_possession_confirm_hold_sec', 0.15)
-        self.declare_parameter('visible_possession_confirm_max_err_x', 30.0)
-        self.declare_parameter('visible_possession_confirm_max_err_y', 10.0)
+        self.declare_parameter('visible_possession_confirm_max_err_x', 45.0)
 
         self.startup_time = self.now_seconds()
         self.state = self.SEARCH_BALL
@@ -496,7 +494,6 @@ class SoccerFSMNode(Node):
                 visible_possession_ready = (
                     self.latest_status.possession_candidate
                     and tracking_area >= float(self.get_parameter('possession_confirm_min_area').value)
-                    and error_y <= float(self.get_parameter('visible_possession_confirm_max_err_y').value)
                     and abs(error_x) <= float(self.get_parameter('visible_possession_confirm_max_err_x').value)
                 )
                 if visible_possession_ready:
@@ -524,7 +521,6 @@ class SoccerFSMNode(Node):
                 )
                 strong_candidate = (
                     self.last_possession_candidate_area >= float(self.get_parameter('possession_confirm_min_area').value)
-                    and self.last_possession_candidate_error_y <= float(self.get_parameter('possession_confirm_max_err_y').value)
                     and abs(self.last_possession_candidate_error_x) <= float(self.get_parameter('possession_confirm_center_tolerance_px').value)
                 )
                 if candidate_recent and self.last_approach_was_straight and strong_candidate:
