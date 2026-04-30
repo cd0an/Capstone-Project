@@ -109,6 +109,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('ball_near_center_exit_threshold_px', 45.0)
         self.declare_parameter('ball_close_steer_band_px', 150.0)
         self.declare_parameter('ball_close_center_area', 4500.0)
+        self.declare_parameter('approach_sign_flip_guard_px', 140.0)
+        self.declare_parameter('approach_sign_flip_hold_sec', 0.45)
         self.declare_parameter('ball_chase_crawl_threshold_px', 170.0)
         self.declare_parameter('ball_chase_crawl_speed', 0.05)
         self.declare_parameter('ball_chase_creep_turn_speed', 0.16)
@@ -170,6 +172,8 @@ class SoccerFSMNode(Node):
         self.approach_turn_reference_error = None
         self.approach_turn_stuck_since = None
         self.approach_turn_stuck_active = False
+        self.approach_committed_error_x = 0.0
+        self.approach_committed_error_time = 0.0
 
         self.cmd_pub = self.create_publisher(Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self.rgb_pub = self.create_publisher(Point, self.get_parameter('rgb_topic').value, 10)
@@ -235,6 +239,8 @@ class SoccerFSMNode(Node):
         self.approach_turn_reference_error = None
         self.approach_turn_stuck_since = None
         self.approach_turn_stuck_active = False
+        self.approach_committed_error_x = 0.0
+        self.approach_committed_error_time = 0.0
         self.approach_turn_reference_error = None
         self.approach_turn_stuck_since = None
         self.approach_turn_stuck_active = False
@@ -397,6 +403,24 @@ class SoccerFSMNode(Node):
                 raw_error_x = self.latest_status.error_x
                 center_x_bias = float(self.get_parameter('ball_center_x_bias_px').value)
                 error_x = raw_error_x - center_x_bias
+                flip_guard_px = float(self.get_parameter('approach_sign_flip_guard_px').value)
+                flip_guard_hold = float(self.get_parameter('approach_sign_flip_hold_sec').value)
+                committed_recent = (
+                    self.approach_committed_error_time > 0.0
+                    and (now - self.approach_committed_error_time) <= flip_guard_hold
+                )
+                sign_flip_guard = (
+                    committed_recent
+                    and abs(self.approach_committed_error_x) >= flip_guard_px
+                    and abs(error_x) >= flip_guard_px
+                    and (self.approach_committed_error_x * error_x) < 0.0
+                )
+                if sign_flip_guard:
+                    error_x = self.approach_committed_error_x
+                else:
+                    self.approach_committed_error_x = error_x
+                    self.approach_committed_error_time = now
+                self.last_ball_error_x = error_x
                 tracking_area = self.latest_status.area
                 error_y = self.latest_status.error_y
                 close_area_mode = tracking_area >= float(self.get_parameter('ball_close_center_area').value)
