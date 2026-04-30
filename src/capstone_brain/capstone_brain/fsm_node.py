@@ -55,8 +55,8 @@ class SoccerFSMNode(Node):
         self.declare_parameter('chase_angular_hold_speed', 0.18)
         self.declare_parameter('motion_breakaway_duration_sec', 0.10)
         self.declare_parameter('ball_area_target', 50000.0)
-        self.declare_parameter('search_spin_on_sec', 0.05)
-        self.declare_parameter('search_spin_off_sec', 0.35)
+        self.declare_parameter('search_spin_on_sec', 0.08)
+        self.declare_parameter('search_spin_off_sec', 0.70)
         self.declare_parameter('max_turn_speed', 3.0)
         self.declare_parameter('recover_duration_sec', 0.8)
         self.declare_parameter('ball_possession_hold_sec', 0.6)
@@ -436,6 +436,7 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 
 
